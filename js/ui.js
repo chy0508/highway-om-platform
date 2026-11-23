@@ -95,6 +95,8 @@
   }
   function render() {
     current = parseHash();
+    document.body.classList.toggle('drive-mode', current.page === 'dashboard');
+    document.body.classList.remove('drive-nav-open');
     const p = Pages[current.page];
     renderNav();
     const content = document.getElementById('content');
@@ -608,6 +610,11 @@
         <div class="rp-note">仅基于内置模拟数据 · 关联≠因果 · 不提供控制/审批/外部操作</div>
       </div>`;
     document.getElementById('modal-mask').addEventListener('click', ev => { if (ev.target.id === 'modal-mask') closeModal(); });
+    document.addEventListener('keydown', ev => {
+      if (ev.key === 'Escape' && document.body.classList.contains('drive-nav-open')) {
+        document.querySelector('.drive-nav-mask')?.click();
+      }
+    });
     initTopbar();
     initRobot();
     window.addEventListener('hashchange', render);

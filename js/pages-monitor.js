@@ -12,81 +12,70 @@
       const s = D.stats();
       const major = D.events.filter(e => e.level === '严重' && e.status !== '已恢复' && !e.status.includes('已确认')).length;
       let range = '7d';
-      el.innerHTML = `
-        <div class="dash-hero">
-          <div class="dh-top">
-            <div class="dh-tt">
-              <div class="dh-eyebrow">${U.icon('road', 13)} ${D.ROAD.name} · K0+000 — K58+000 · 运行态势</div>
-              <h1>综合驾驶舱</h1>
-              <div class="dh-sub">六专业 ${s.total.toLocaleString()} 台设备统一态势 · 7 个厂家平台接入 · 点击指标卡下钻设备，点击地图节点进入数字孪生</div>
-            </div>
-            <div class="dh-act">
-              <span class="btn-group dark" id="dash-range">
-                <button class="seg" data-r="today">今日</button><button class="seg on" data-r="7d">近7天</button><button class="seg" data-r="30d">近30天</button>
-              </span>
-              <button class="btn navy-l" onclick="UI.toast('已模拟导出运行总览报告（模拟反馈，不生成真实文件）','ok')">${U.icon('export', 14)} 导出总览</button>
-            </div>
-          </div>
-          <div class="dh-kpis" id="dash-kpis"></div>
-          <div class="dh-bar">
-            <span class="dh-bl">设备在线率</span>
-            <span class="dh-track"><i style="width:${s.onlineRate.toFixed(2)}%"></i></span>
-            <b class="dh-bv">${s.onlineRate.toFixed(2)}%</b>
-            <span class="dh-sep"></span>
-            <span class="dh-dot" style="background:#16a34a"></span>在线 ${s.online.toLocaleString()}
-            <span class="dh-dot" style="background:#f59e0b"></span>异常 ${s.warn}
-            <span class="dh-dot" style="background:#94a3b8"></span>离线 ${s.offline}
-            <span class="spacer" style="flex:1"></span>
-            <span class="dh-muted">数据快照 ${D.fmtTime(D.NOW, 'full')} · 模拟数据</span>
-          </div>
-        </div>
-        <div class="grid mt" style="grid-template-columns:1.7fr 1fr">
-          <div class="card dark-panel">
-            <div class="card-h"><span class="card-t">路段态势</span><span class="sub">拖拽平移 / 滚轮缩放 · 点击节点下钻</span><span class="spacer"></span>
-              <button class="btn sm navy" onclick="UI.go('gis')">${U.icon('cube', 13)} 进入数字孪生</button></div>
-            <div class="card-b tight"><div id="dash-map"></div></div>
-          </div>
-          <div class="card">
-            <div class="card-h"><span class="card-t">重点事件</span><span class="sub" id="ev-range-label">近7天</span><span class="spacer"></span><a class="small" onclick="UI.go('diagnosis')">全部事件 ›</a></div>
-            <div class="dh-evsum" id="dash-evsum"></div>
-            <div class="card-b tight" id="dash-events" style="max-height:318px;overflow-y:auto"></div>
-          </div>
-        </div>
-        <div class="grid g-3 mt">
-          <div class="card"><div class="card-h"><span class="card-t">专业设备状态</span><span class="spacer"></span>${U.demoBadge()}</div><div class="card-b" id="dash-cats"></div></div>
-          <div class="card"><div class="card-h"><span class="card-t">告警趋势</span><span class="sub" id="alarm-range-label">近7天 · 条/日</span><span class="spacer"></span>${U.demoBadge()}</div><div class="card-b" id="dash-alarm"></div></div>
-          <div class="card"><div class="card-h"><span class="card-t">隧道能耗摘要</span><span class="sub">青岭隧道 · kWh/日</span><span class="spacer"></span>${U.demoBadge()}</div><div class="card-b" id="dash-energy"></div></div>
-        </div>
-        <div class="grid mt" style="grid-template-columns:1fr 1.6fr">
-          <div class="card" style="cursor:pointer" onclick="UI.go('cost')">
-            <div class="card-h"><span class="card-t">本月成本摘要</span><span class="sub">2026-11 · 万元</span><span class="spacer"></span>${U.demoBadge()}<a class="small">成本分析 ›</a></div>
-            <div class="card-b" id="dash-cost"></div>
-          </div>
-          <div class="card">
-            <div class="card-h"><span class="card-t">核心场景快捷入口</span><span class="sub">建议浏览顺序 ① → ⑥</span></div>
-            <div class="card-b"><div class="quick-q" id="dash-shortcuts"></div></div>
-          </div>
-        </div>`;
-      // KPI
-      const kpis = [
-        ['纳管设备总数', s.total.toLocaleString(), '台', '六大专业 · 7个数据源', '#4da3ff', 'dev', "UI.go('devices')"],
-        ['在线设备', s.online.toLocaleString(), '台', '在线率 ' + s.onlineRate.toFixed(1) + '%', '#34d399', 'check', "UI.go('devices',{status:'online'})"],
-        ['异常设备', s.warn, '台', '含Z-03照明18盏 · 点击下钻', '#fbbf24', 'warn', "UI.go('devices',{status:'warn'})"],
-        ['离线设备', s.offline, '台', '含青岭摄像机4台 · 点击下钻', '#9fb3cd', 'off', "UI.go('devices',{status:'offline'})"],
-        ['今日告警', D.todayAlarms, '条', '严重 2 · 重要 8 · 其余一般/提示', '#f87171', 'bell', "UI.go('diagnosis')"],
-        ['未解除重大异常', major, '起', '摄像机集体离线 / 照明区域异常', '#f87171', 'diag', "UI.go('diagnosis',{level:'严重'})"]
+      const daysAxis = count => Array.from({length: count}, (_, i) =>
+        D.fmtTime(new Date(D.NOW.getTime() - (count - 1 - i) * 86400000), 'md'));
+      const cm = D.costMonthly[D.costMonthly.length - 1];
+      const totalCost = cm.energy + cm.parts + cm.service + cm.field + cm.emergency;
+      const stats = [
+        ['在线设备', s.online, 'online'], ['异常设备', s.warn, 'warn'], ['离线设备', s.offline, 'offline']
       ];
-      el.querySelector('#dash-kpis').innerHTML = kpis.map(([n, v, u, sub, c, ic, act]) =>
-        `<div class="dh-kpi" style="--kc:${c}" onclick="${act}">
-          <div class="dh-ki">${U.icon(ic, 15)}</div>
-          <div class="dh-kv">${v}<small>${u}</small></div>
-          <div class="dh-kn">${n}</div>
-          <div class="dh-ks">${sub}</div>
-        </div>`).join('');
-      // 在线地图
+      const panel = (title, extra, html, cls = '') => `<section class="drive-panel ${cls}"><header><h2>${title}</h2>${extra}</header>${html}</section>`;
+      el.innerHTML = `<div class="drive" data-boards="${matchMedia('(max-width: 900px)').matches ? 'off' : 'on'}">
+        <div id="dash-map" aria-label="A高速示范路段交互地图"></div>
+        <header class="drive-head">
+          <div class="drive-brand">
+            <button class="drive-menu" type="button" aria-label="业务导航" aria-controls="sidebar" aria-expanded="false">☰</button>
+            <span class="drive-brand-mark">${U.icon('road', 22)}</span><div><small>高速公路机电智能运维平台</small><h1>综合驾驶舱</h1></div>
+          </div>
+          <div class="drive-road"><span class="drive-line"></span><strong>${D.ROAD.name}</strong><span>K0+000 — K58+000</span></div>
+          <div class="drive-actions"><button class="drive-toggle" type="button"></button></div>
+        </header>
+        <button type="button" class="drive-nav-mask" aria-label="关闭业务导航"></button>
+        <div class="drive-mobile-tabs"><button data-side="left" aria-pressed="true">设备与成本</button><button data-side="right" aria-pressed="false">事件与能耗</button></div>
+        <aside class="drive-rail drive-left" aria-label="设备与成本看板">
+          ${panel('设备运行', '<span>六大专业</span>', `<div class="drive-overview">
+            <button class="drive-total" onclick="UI.go('devices')"><span>纳管设备</span><strong>${s.total.toLocaleString()}<small>台</small></strong></button>
+            <div class="drive-ring" style="--rate:${s.onlineRate}%"><div><b>${s.onlineRate.toFixed(1)}<small>%</small></b><span>在线率</span></div></div></div>
+            <div class="drive-status">${stats.map(([name,val,key])=>`<button data-status="${key}" onclick="UI.go('devices',{status:'${key}'})"><i></i>${name}<b>${val.toLocaleString()}</b></button>`).join('')}</div>`)}
+          ${panel('专业设备状态', '<span>单位 · 台</span>', '<div id="dash-cats"></div>')}
+          ${panel('本月运维成本', '<a href="#/cost">成本分析 ›</a>', `<div class="drive-cost-total"><strong>${totalCost.toFixed(1)}</strong> 万元</div><div id="dash-cost"></div>`)}
+          ${panel('业务场景', '', '<nav id="dash-shortcuts" aria-label="业务场景"></nav>')}
+        </aside>
+        <aside class="drive-rail drive-right" aria-label="事件与能耗看板">
+          ${panel('重点事件','<a href="#/diagnosis">全部事件 ›</a>',`<div class="drive-alert-totals">
+              <button onclick="UI.go('diagnosis')"><span>今日告警</span><b>${D.todayAlarms}<small>条</small></b></button>
+              <button onclick="UI.go('diagnosis',{level:'严重'})"><span>未解除重大异常</span><b>${major}<small>起</small></b></button></div>
+            <div class="drive-period" id="dash-range" aria-label="看板统计周期"><button data-r="today">今日</button><button data-r="7d">近7天</button><button data-r="30d">近30天</button></div>
+            <div id="dash-evsum"></div><div id="dash-events"></div>`,'drive-event-panel')}
+          ${panel('隧道能耗', '<span>青岭隧道 · kWh</span>', '<div id="dash-energy"></div>')}
+        </aside>
+        <section class="drive-history"><header><h2>告警趋势</h2><span id="alarm-range-label"></span></header><div id="dash-alarm"></div></section>
+      </div>`;
+      const drive = el.querySelector('.drive');
+      const toggle = drive.querySelector('.drive-toggle');
+      function setBoards(open) {
+        drive.dataset.boards = open ? 'on' : 'off';
+        toggle.textContent = open ? '收起看板' : '显示看板';
+        toggle.setAttribute('aria-expanded', String(open));
+      }
+      setBoards(drive.dataset.boards === 'on');
+      toggle.onclick = () => setBoards(drive.dataset.boards !== 'on');
+      drive.dataset.side = 'left';
+      drive.querySelectorAll('[data-side]').forEach(button => button.onclick = () => {
+        drive.dataset.side = button.dataset.side;
+        drive.querySelectorAll('[data-side]').forEach(item => item.setAttribute('aria-pressed', String(item === button)));
+      });
+      const menu = drive.querySelector('.drive-menu');
+      function showMenu(open) {
+        document.body.classList.toggle('drive-nav-open', open);
+        menu.setAttribute('aria-expanded', String(open));
+        if (!open) menu.focus();
+      }
+      menu.onclick = () => showMenu(!document.body.classList.contains('drive-nav-open'));
+      drive.querySelector('.drive-nav-mask').onclick = () => showMenu(false);
       Twin.geoMap(el.querySelector('#dash-map'), {
-        height: 340,
-        onSelect(sel) {
+        fill: true,
+                onSelect(sel) {
           if (sel.kind === 'event') { const e = D.events.find(x => x.id === sel.code); U.go(e.page, { id: sel.code }); }
           else if (sel.kind === 'tunnel') U.go('gis', { mode: 'tunnel', scene: sel.code });
           else if (sel.kind === 'room') U.go('gis', { mode: 'room', scene: sel.code });
@@ -94,65 +83,44 @@
           else U.openDevice(sel.code);
         }
       });
-      // 快捷入口
       const shortcuts = [
-        ['① 摄像机集体离线诊断', 'scene-camera'], ['② 隧道照明区域异常', 'scene-lighting'],
-        ['③ 风机运行优化', 'fan'], ['④ 照明智能调光', 'light'],
-        ['⑤ 多隧道任务统筹', 'tasks'], ['⑥ 运维成效评价', 'kpi']
+        ['摄像机离线', 'scene-camera'], ['照明异常', 'scene-lighting'], ['风机优化', 'fan'],
+        ['照明调光', 'light'], ['作业统筹', 'tasks'], ['成效评价', 'kpi']
       ];
-      el.querySelector('#dash-shortcuts').innerHTML = shortcuts.map(([n, k]) => `<span class="qq" onclick="UI.go('${k}')">${n}</span>`).join('');
-      // 成本摘要
-      const cm = D.costMonthly[D.costMonthly.length - 1];
-      el.querySelector('#dash-cost').innerHTML = `<div class="grid g-4">` +
-        [['能源费用', cm.energy, '#2f7bff'], ['维修服务', cm.service, '#f59e0b'], ['备品备件', cm.parts, '#00b8d9'], ['现场作业', cm.field, '#8b5cf6']]
-          .map(([n, v, c]) => `<div><div class="small muted">${n}</div><div style="font-size:21px;font-weight:700;color:${c}">${v.toFixed(1)}<small style="font-size:11px;color:var(--text-3)"> 万元</small></div></div>`).join('') +
-        `</div><div class="note-box blue mt">本月合计 <b>${(cm.energy + cm.parts + cm.service + cm.field + cm.emergency).toFixed(1)} 万元</b>（含应急支出 ${cm.emergency.toFixed(1)} 万元）。能源费用占比最高，隧道风机与照明为主要用能对象。</div>`;
-      // 专业状态
-      const catBox = el.querySelector('#dash-cats');
-      Object.keys(D.CATS).forEach(c => {
-        const cs = D.catStats[c], meta = D.CATS[c];
-        const row = document.createElement('div');
-        row.style.cssText = 'padding:5px 0;cursor:pointer';
-        row.innerHTML = `<div class="flex ai-center" style="gap:8px;font-size:12px">
-          <span style="width:70px;color:var(--text-2)">${meta.name}</span>
-          <span style="flex:1;display:flex;height:10px;border-radius:5px;overflow:hidden;background:var(--gray-bg)">
-            <i style="width:${cs.online / cs.total * 100}%;background:${meta.color}"></i>
-            <i style="width:${cs.warn / cs.total * 100}%;background:#f59e0b"></i>
-            <i style="width:${cs.offline / cs.total * 100}%;background:#94a3b8"></i></span>
-          <b style="width:36px;text-align:right">${cs.total}</b>
-          <span class="small muted" style="width:86px;text-align:right">${cs.warn ? '<span style="color:#b45309">异常' + cs.warn + '</span> ' : ''}${cs.offline ? '<span style="color:#64748b">离线' + cs.offline + '</span>' : '<span style="color:#15803d">全部在线</span>'}</span></div>`;
-        row.addEventListener('click', () => U.go('devices', { cat: c }));
-        catBox.appendChild(row);
-      });
-      const lg = document.createElement('div');
-      lg.className = 'legend';
-      lg.innerHTML = '<span class="li"><span class="cd" style="background:#2f7bff"></span>在线（按专业色）</span><span class="li"><span class="cd" style="background:#f59e0b"></span>异常</span><span class="li"><span class="cd" style="background:#94a3b8"></span>离线</span>';
-      catBox.appendChild(lg);
-
+      el.querySelector('#dash-shortcuts').innerHTML = shortcuts.map(([name, page]) =>
+        `<a href="#/${page}">${name}<span>›</span></a>`).join('');
+      const costs = [['能源',cm.energy],['维修',cm.service],['备件',cm.parts],['作业',cm.field],['应急',cm.emergency]];
+      el.querySelector('#dash-cost').innerHTML = `<div class="drive-cost-bar">${costs.map(([,v],i)=>
+        `<i style="width:${v / totalCost * 100}%;--i:${i}"></i>`).join('')}</div><div class="drive-cost-key">${costs.map(([name,v],i)=>
+        `<span><i style="--i:${i}"></i>${name} <b>${v.toFixed(1)}</b></span>`).join('')}</div>`;
+      el.querySelector('#dash-cats').innerHTML = Object.entries(D.CATS).map(([key,meta]) => {
+        const cs = D.catStats[key];
+        return `<button class="drive-cat" onclick="UI.go('devices',{cat:'${key}'})" title="${meta.name} · 异常 ${cs.warn} 台，离线 ${cs.offline} 台">
+          <span>${meta.name}</span><i><i style="width:${100 * cs.total / s.total}%;background:${meta.color}"></i></i><b>${cs.total}</b></button>`;
+      }).join('');
       function drawRange(r) {
         range = r;
         // 事件列表
         const hours = r === 'today' ? 24 : r === '7d' ? 168 : 720;
         const evs = D.events.filter(e => (D.NOW - e.time) / 3600000 <= hours);
-        el.querySelector('#dash-evsum').innerHTML = [['严重', '#ef4444'], ['重要', '#f59e0b'], ['一般', '#2f7bff'], ['提示', '#94a3b8']]
-          .map(([l, c]) => `<span class="dh-ev"><i style="background:${c}"></i>${l} <b>${evs.filter(e => e.level === l).length}</b></span>`).join('');
-        el.querySelector('#ev-range-label').textContent = r === 'today' ? '今日' : r === '7d' ? '近7天' : '近30天';
+        el.querySelector('#dash-evsum').innerHTML = [['严重', '#ff777c'], ['重要', '#eaba73'], ['一般', '#70adf7'], ['提示', '#a3b4c5']]
+          .map(([l, c]) => `<span><i style="background:${c}"></i>${l} <b>${evs.filter(e => e.level === l).length}</b></span>`).join('');
         el.querySelector('#dash-events').innerHTML = evs.length ? evs.map(e => `
-          <div class="evi" style="cursor:pointer;margin:6px 4px" onclick="UI.go('${e.page}',{id:'${e.id}'})">
-            <div class="evi-t">${U.levelTag(e.level)} ${e.name}</div>
-            <div class="evi-d">${e.place} · 影响 <b>${e.affected.length}</b> 台 · ${D.fmtTime(e.time)}</div>
-            <div class="src"><span class="tag ${e.status.includes('候选') || e.status.includes('确认') ? 'cyan' : 'plain'}">${e.status}</span> ${e.candidate}</div>
-          </div>`).join('') : '<div class="empty">该时间范围内无重点事件</div>';
+          <button class="drive-event" onclick="UI.go('${e.page}',{id:'${e.id}'})">
+            <span class="drive-event-level" data-level="${e.level}">${e.level}</span><strong>${e.name}</strong>
+            <small>${e.place} · 影响 ${e.affected.length} 台</small><time>${D.fmtTime(e.time)}</time>
+          </button>`).join('') : '<div class="empty">该时段无重点事件</div>';
+        el.querySelectorAll('#dash-range button').forEach(btn=>btn.setAttribute('aria-pressed', String(btn.dataset.r===r)));
         // 告警趋势
         const ab = el.querySelector('#dash-alarm');
         el.querySelector('#alarm-range-label').textContent = r === 'today' ? '今日 · 条/小时' : r === '7d' ? '近7天 · 条/日' : '近30天 · 条/日';
         if (r === 'today') {
           const labels = D.hoursAxis(12, 2);
           const data = D.series('alarmToday', 12, 2.4, 3, { spikeAt: 5, spike: 20, fix: 0 }).map(v => Math.max(0, Math.round(v)));
-          Charts.bar(ab, { labels, series: [{ name: '告警数', color: '#2f7bff', data }], height: 205, yUnit: '条', legend: false });
+          Charts.bar(ab, { labels, series: [{ name: '告警数', color: '#2f7bff', data }], height: 84, dark: true, labelEvery: 2, yUnit: '条', legend: false });
         } else {
           const n = r === '7d' ? 7 : 30;
-          const labels = D.hoursAxis(n, 24).map(x => x.slice(0, 5));
+          const labels = daysAxis(n);
           const rr = D.rng('alarm' + r);
           const crit = [], major = [], minor = [];
           for (let i = 0; i < n; i++) {
@@ -160,22 +128,36 @@
             major.push(i === n - 1 ? 8 : 2 + Math.floor(rr() * 5));
             minor.push(4 + Math.floor(rr() * 8));
           }
-          Charts.bar(ab, { labels, series: [{ name: '严重', color: '#ef4444', data: crit }, { name: '重要', color: '#f59e0b', data: major }, { name: '一般/提示', color: '#93b4e8', data: minor }], height: 205, yUnit: '条' });
+          Charts.bar(ab, { labels, series: [{ name: '严重', color: '#ef4444', data: crit }, { name: '重要', color: '#f59e0b', data: major }, { name: '一般/提示', color: '#93b4e8', data: minor }], height: 84, dark: true, labelEvery: Math.ceil(n / 7), legend: false, yUnit: '条' });
         }
         // 能耗
         const n2 = r === 'today' ? 12 : r === '7d' ? 7 : 30;
-        const labels2 = r === 'today' ? D.hoursAxis(12, 2) : D.hoursAxis(n2, 24).map(x => x.slice(0, 5));
+        const labels2 = r === 'today' ? D.hoursAxis(12, 2) : daysAxis(n2);
         const fan = D.series('fanE' + r, n2, r === 'today' ? 96 : 2280, r === 'today' ? 40 : 380, { daily: true, cycles: r === 'today' ? 1 : 3, fix: 0 });
         const light = D.series('lightE' + r, n2, r === 'today' ? 62 : 1480, r === 'today' ? 22 : 220, { daily: true, cycles: r === 'today' ? 1 : 3, fix: 0 });
         Charts.line(el.querySelector('#dash-energy'), {
           labels: labels2,
           series: [{ name: '风机用电', color: '#2f7bff', data: fan, unit: 'kWh' }, { name: '照明用电', color: '#f59e0b', data: light, unit: 'kWh' }],
-          height: 205, yUnit: 'kWh', zero: true, area: true
+          height: 124, dark: true, yUnit: 'kWh', zero: true, area: true
         });
       }
-      drawRange('7d');
-      el.querySelectorAll('#dash-range .seg').forEach(b => b.addEventListener('click', () => {
-        el.querySelectorAll('#dash-range .seg').forEach(x => x.classList.remove('on'));
+      const compact = matchMedia('(max-width: 900px)');
+      const history = drive.querySelector('.drive-history');
+      const rightRail = drive.querySelector('.drive-right');
+      function arrangeCharts() {
+        (compact.matches ? rightRail : drive).appendChild(history);
+      }
+      arrangeCharts();
+      const observer = new ResizeObserver(() => {
+        if (!drive.isConnected) { observer.disconnect(); return; }
+        if (rightRail.contains(history) !== compact.matches) arrangeCharts();
+        if (drive.clientWidth) drawRange(range);
+      });
+      observer.observe(drive);
+      observer.observe(el.querySelector('#dash-energy'));
+      drawRange(range);
+      el.querySelectorAll('#dash-range button').forEach(b => b.addEventListener('click', () => {
+        el.querySelectorAll('#dash-range button').forEach(x => x.classList.remove('on'));
         b.classList.add('on'); drawRange(b.dataset.r);
       }));
     }
@@ -185,7 +167,40 @@
   P.gis = {
     title: '数字孪生一张图', group: '数字孪生一张图',
     render(el, params) {
-      let mode = params.mode === 'road' ? 'road' : params.mode === 'room' ? 'room' : params.mode === 'macro' ? 'macro' : params.mode === 'bim' ? 'tunnel' : null;
+      const bridgeView = params.view === 'bridge';
+      const modes = [['macro', 'map', '宏观路网'], ['road', 'road', '路段孪生'], ['tunnel', 'cube', '隧道孪生'], ['room', 'db', '机房孪生']];
+      const heading = `<header class="gis-heading">
+        <div class="page-title">数字孪生一张图 · ${bridgeView ? '桥隧场景' : '重点区位数字孪生'} ${U.demoBadge()}</div>
+        <div class="gis-toolbar" role="group" aria-label="孪生场景工具栏">
+          <div class="btn-group" id="gis-mode">${modes.map(([key, icon, label]) =>
+            `<button type="button" class="seg" data-m="${key}" aria-pressed="false">${U.icon(icon, 13)} ${label}</button>`).join('')}</div>
+          <select class="sel" id="gis-scene" aria-label="场景点位"${bridgeView ? ' disabled' : ''}>${bridgeView ? '<option>桥隧场景</option>' : ''}</select>
+          <button type="button" class="btn" id="gis-back">${U.icon('back', 14)} 返回宏观</button>
+          <button type="button" class="btn primary" id="gis-view-switch">${U.icon(bridgeView ? 'back' : 'road', 15)} ${bridgeView ? '返回设备孪生' : '切换至桥隧场景'}</button>
+        </div></header>`;
+      if (bridgeView) {
+        const { view, ...returnParams } = params;
+        el.innerHTML = `<section class="gis-bridge">
+          ${heading}
+          <iframe class="gis-bridge-frame" title="青岚高速东段桥隧场景" src="cockpit.html#/route/qinglan" allowfullscreen></iframe>
+        </section>`;
+        el.querySelector('#gis-view-switch').onclick = () => U.go('gis', returnParams);
+        el.querySelectorAll('#gis-mode button').forEach(button => {
+          button.onclick = () => U.go('gis', button.dataset.m === returnParams.mode ? returnParams : { mode: button.dataset.m });
+        });
+        el.querySelector('#gis-back').onclick = () => U.go('gis', { mode: 'macro' });
+        // The bridge scene uses a different Three.js version and its own asset registry.
+        const frame = el.querySelector('iframe');
+        frame.addEventListener('load', () => {
+          if (frame.contentDocument?.getElementById('spatial')) return;
+          const message = document.createElement('p');
+          message.setAttribute('role', 'alert');
+          message.textContent = '桥隧场景暂未加载，请刷新页面重试。';
+          frame.replaceWith(message);
+        });
+        return;
+      }
+      let mode = ['road', 'room', 'macro', 'tunnel'].includes(params.mode) ? params.mode : params.mode === 'bim' ? 'tunnel' : null;
       const fdev = params.focus ? D.byCode[params.focus] : null;
       const fpl = fdev ? (fdev.place || '') : '';
       if (!mode) mode = params.focus ? (/机房/.test(fpl) && !/隧道/.test(fpl) ? 'room' : /隧道/.test(fpl) ? 'tunnel' : 'road') : 'tunnel';
@@ -193,16 +208,8 @@
       let twin = null;
       let buildSeq = 0;
       const ROAD = Twin.ROAD_SCENES;
-      el.innerHTML = U.pageHead('数字孪生一张图 · 重点区位数字孪生',
-        '默认进入隧道数字孪生场景，映射风机/照明/配电等洞内机电与实时状态；右上角可切换宏观路网、路段孪生与机房孪生——路段展示情报板/摄像机/车流光轨，机房展示机柜/UPS/精密空调并实时映射动环与负载、提供模拟调控与预警预测。拖拽旋转 · 滚轮缩放 · 右键平移。',
-        `<span class="btn-group" id="gis-mode">
-          <button class="seg ${mode === 'macro' ? 'on' : ''}" data-m="macro">${U.icon('map', 13)} 宏观路网</button>
-          <button class="seg ${mode === 'road' ? 'on' : ''}" data-m="road">${U.icon('road', 13)} 路段孪生</button>
-          <button class="seg ${mode === 'tunnel' ? 'on' : ''}" data-m="tunnel">${U.icon('cube', 13)} 隧道孪生</button>
-          <button class="seg ${mode === 'room' ? 'on' : ''}" data-m="room">${U.icon('db', 13)} 机房孪生</button>
-        </span>
-        <select class="sel" id="gis-scene" style="min-width:170px"></select>
-        <button class="btn" id="gis-back" style="display:none">${U.icon('back', 14)} 返回宏观</button>`) +
+      el.innerHTML = heading +
+        '<div class="page-desc gis-instructions">默认进入隧道数字孪生场景，映射风机/照明/配电等洞内机电与实时状态；右上角可切换宏观路网、路段孪生与机房孪生——路段展示情报板/摄像机/车流光轨，机房展示机柜排/UPS/精密空调与实时动环，提供模拟调控与预警预测。拖拽旋转 · 滚轮缩放 · 右键平移。</div>' +
         `<div class="flex">
           <div style="width:232px;flex:0 0 232px" class="flex col">
             <div class="card dark-panel">
@@ -555,8 +562,8 @@
       }
       function syncSceneSel() {
         const sel = el.querySelector('#gis-scene');
-        if (mode === 'macro') { sel.style.display = 'none'; return; }
-        sel.style.display = '';
+        sel.disabled = mode === 'macro';
+        if (sel.disabled) { sel.innerHTML = '<option>全线路网</option>'; return; }
         const opts = mode === 'tunnel' ? D.TUNNELS.map(t => [t.id, t.name]) : mode === 'room' ? D.ROOMS.map(r => [r.id, r.name]) : ROAD.map(r => [r.id, r.name]);
         sel.innerHTML = opts.map(([v, n]) => `<option value="${v}" ${v === sceneKey ? 'selected' : ''}>${n}</option>`).join('');
       }
@@ -573,7 +580,7 @@
         el.querySelector('#ctl-view option[value="inside"]').disabled = mode === 'macro';
         el.querySelector('#gis-status-card').style.display = mode === 'macro' ? '' : 'none';
         el.querySelector('#hud-back').style.display = mode === 'macro' ? 'none' : '';
-        el.querySelector('#gis-back').style.display = mode === 'macro' ? 'none' : '';
+        el.querySelector('#gis-back').disabled = mode === 'macro';
         const inside = el.querySelector('#hud-inside');
         inside.style.display = mode === 'macro' ? 'none' : '';
         inside.innerHTML = mode === 'tunnel' ? U.icon('play', 13) + ' 洞内视角' : U.icon('play', 13) + ' 贴近视角';
@@ -623,11 +630,23 @@
         }, 30);
       }
       function rebuild() {
-        el.querySelectorAll('#gis-mode .seg').forEach(b => b.classList.toggle('on', b.dataset.m === mode));
+        el.querySelectorAll('#gis-mode .seg').forEach(b => {
+          const selected = b.dataset.m === mode;
+          b.classList.toggle('on', selected);
+          b.setAttribute('aria-pressed', String(selected));
+        });
         syncSceneSel(); syncConsole(); buildDrill(); buildBottom(); buildTwin();
       }
       rebuild();
       /* ---- 头部导航 ---- */
+      el.querySelector('#gis-view-switch').onclick = () => {
+        const current = { ...params, mode };
+        if (mode === 'macro') delete current.scene;
+        else current.scene = sceneKey;
+        // Keep browser Back and the return button on the same equipment scene.
+        history.replaceState(history.state, '', '#/gis?' + new URLSearchParams(current));
+        U.go('gis', { ...current, view: 'bridge' });
+      };
       el.querySelectorAll('#gis-mode .seg').forEach(b => b.addEventListener('click', () => {
         if (b.dataset.m === mode) return;
         mode = b.dataset.m;

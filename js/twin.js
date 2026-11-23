@@ -1317,7 +1317,7 @@
     const H = opts.height || 320;
     const wrap = document.createElement('div');
     wrap.className = 'geo-map';
-    wrap.style.height = H + 'px';
+    wrap.style.height = opts.fill ? '100%' : H + 'px';
     wrap.innerHTML =
       '<div class="gm-tiles"></div><svg class="gm-svg"></svg><div class="gm-nodes"></div>' +
       '<div class="gm-ctl"><button data-z="1" title="放大">+</button><button data-z="-1" title="缩小">−</button><button data-z="0" title="复位视图">⌂</button></div>' +
@@ -1330,10 +1330,23 @@
     const nodesBox = wrap.querySelector('.gm-nodes');
     const loadNote = wrap.querySelector('.gm-load');
     const HOME = { z: 10, lng: 119.46, lat: 30.145 };
-    let z = HOME.z, center = { lng: HOME.lng, lat: HOME.lat };
+    let tileSize = 256;
+    function fitZoom() {
+      if (!opts.fill) return HOME.z;
+      const rail = el.closest('.drive')?.querySelector('.drive-left');
+      const sides = innerWidth > 900 && rail?.getBoundingClientRect().width || 0;
+      const width = Math.max(120, wrap.clientWidth - 2 * sides - (sides ? 112 : 52));
+      const longitudeSpan = Math.abs(GEO_ROUTE[0][0] - GEO_ROUTE[GEO_ROUTE.length - 1][0]);
+      const level = Math.max(8, Math.min(12, Math.log2(width * 360 / (256 * longitudeSpan))));
+      const nearest = Math.round(level);
+      tileSize = 256 * Math.pow(2, level - nearest);
+      return nearest;
+    }
+    let homeView = true;
+    let z = fitZoom(), center = { lng: HOME.lng, lat: HOME.lat };
     let failed = false, loaded = 0, errs = 0;
     const cache = new Map();
-    const world = () => 256 * Math.pow(2, z);
+    const world = () => tileSize * Math.pow(2, z);
     function px(lng, lat) {
       const w = world(), s = Math.sin(lat * Math.PI / 180);
       return [(lng + 180) / 360 * w, (0.5 - Math.log((1 + s) / (1 - s)) / (4 * Math.PI)) * w];
@@ -1362,12 +1375,18 @@
       return [dense[i - 1][0] + (dense[i][0] - dense[i - 1][0]) * f, dense[i - 1][1] + (dense[i][1] - dense[i - 1][1]) * f];
     }
     function view() {
-      const w = Math.max(wrap.clientWidth, 200), h = H;
+      const w = Math.max(wrap.clientWidth, 200), h = wrap.clientHeight || H;
       const c = px(center.lng, center.lat);
       return { w, h, tl: [c[0] - w / 2, c[1] - h / 2] };
     }
     function fail() {
       if (failed) return;
+      if (opts.fill) {
+        wrap.classList.add('gm-offline');
+        wrap.querySelector('.gm-attr').textContent = '路段示意 · 在线底图暂不可用';
+        loadNote.style.display = 'none';
+        return;
+      }
       failed = true;
       clearTimeout(failTimer);
       wrap.innerHTML = '';
@@ -1380,8 +1399,8 @@
     const failTimer = setTimeout(() => { if (!loaded) fail(); }, 8000);
     function renderTiles(v) {
       const n = Math.pow(2, z);
-      const x0 = Math.floor(v.tl[0] / 256), x1 = Math.floor((v.tl[0] + v.w) / 256);
-      const y0 = Math.max(0, Math.floor(v.tl[1] / 256)), y1 = Math.min(n - 1, Math.floor((v.tl[1] + v.h) / 256));
+      const x0 = Math.floor(v.tl[0] / tileSize), x1 = Math.floor((v.tl[0] + v.w) / tileSize);
+      const y0 = Math.max(0, Math.floor(v.tl[1] / tileSize)), y1 = Math.min(n - 1, Math.floor((v.tl[1] + v.h) / tileSize));
       const need = new Set();
       for (let x = x0; x <= x1; x++) for (let y = y0; y <= y1; y++) {
         const wx = ((x % n) + n) % n, key = z + '/' + wx + '/' + y;
@@ -1392,13 +1411,14 @@
           img.alt = '';
           img.draggable = false;
           img.src = 'https://webrd0' + ((wx + y) % 4 + 1) + '.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=8&x=' + wx + '&y=' + y + '&z=' + z;
-          img.addEventListener('load', () => { loaded++; loadNote.style.display = 'none'; });
-          img.addEventListener('error', () => { errs++; if (!loaded && errs >= 8) fail(); });
+          img.addEventListener('load', () => { loaded++; loadNote.style.display = 'none'; if (wrap.classList.contains('gm-offline')) { wrap.classList.remove('gm-offline'); wrap.querySelector('.gm-attr').textContent = '在线地图 © 高德 · 路线/节点为模拟映射'; } });
+          img.addEventListener('error', () => { img.style.visibility = 'hidden'; errs++; if (!loaded && errs >= 8) fail(); });
           cache.set(key, img);
           tilesBox.appendChild(img);
         }
-        img.style.left = (x * 256 - v.tl[0]) + 'px';
-        img.style.top = (y * 256 - v.tl[1]) + 'px';
+        img.style.width = img.style.height = (tileSize + (opts.fill ? 0.5 : 0)) + 'px';
+        img.style.left = (x * tileSize - v.tl[0]) + 'px';
+        img.style.top = (y * tileSize - v.tl[1]) + 'px';
       }
       cache.forEach((img, key) => { if (!need.has(key)) { img.remove(); cache.delete(key); } });
     }
@@ -1439,7 +1459,14 @@
         const ll = kmLL(km), p = px(ll[0], ll[1]);
         const x = p[0] - v.tl[0], y = p[1] - v.tl[1];
         if (x < 0 || x > v.w || y < 0 || y > v.h) return '';
-        return '<span class="gm-km" style="left:' + x.toFixed(1) + 'px;top:' + (y + 14).toFixed(1) + 'px">' + D.kmText(km) + '</span>';
+        let top = y + 14;
+        if (opts.fill) {
+          const label = {x:x-26, y:top, w:52, h:12};
+          while (placed.some(item => hit(item, label))) label.y += 13;
+          top = label.y;
+          placed.push(label);
+        }
+        return '<span class="gm-km" style="left:' + x.toFixed(1) + 'px;top:' + top.toFixed(1) + 'px">' + D.kmText(km) + '</span>';
       }).join('');
       nodesBox.querySelectorAll('.gm-n').forEach(b => b.addEventListener('click', ev => {
         ev.stopPropagation();
@@ -1463,6 +1490,7 @@
     }
     function onMove(ev) {
       if (!drag) return;
+      homeView = false;
       const c = px(center.lng, center.lat);
       const ll = unpx(c[0] - (ev.clientX - drag.x), c[1] - (ev.clientY - drag.y));
       center = { lng: ll[0], lat: Math.max(-80, Math.min(80, ll[1])) };
@@ -1473,6 +1501,7 @@
     function zoomAt(dz, mx, my) {
       const nz = Math.max(8, Math.min(14, z + dz));
       if (nz === z) return;
+      homeView = false;
       const v = view();
       const anchor = unpx(v.tl[0] + mx, v.tl[1] + my);
       z = nz;
@@ -1494,10 +1523,10 @@
     wrap.addEventListener('wheel', onWheel, { passive: false });
     wrap.querySelectorAll('.gm-ctl button').forEach(b => b.addEventListener('click', () => {
       const dz = +b.dataset.z;
-      if (dz === 0) { z = HOME.z; center = { lng: HOME.lng, lat: HOME.lat }; cache.forEach(img => img.remove()); cache.clear(); render(); }
-      else zoomAt(dz, wrap.clientWidth / 2, H / 2);
+      if (dz === 0) { homeView = true; z = fitZoom(); center = { lng: HOME.lng, lat: HOME.lat }; cache.forEach(img => img.remove()); cache.clear(); render(); }
+      else zoomAt(dz, wrap.clientWidth / 2, wrap.clientHeight / 2);
     }));
-    const ro = new ResizeObserver(() => render());
+    const ro = new ResizeObserver(() => { if (homeView) z = fitZoom(); render(); });
     ro.observe(wrap);
     render();
     const inst = {

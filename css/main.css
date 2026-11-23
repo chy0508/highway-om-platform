@@ -147,6 +147,38 @@ button { font-family: var(--font); }
 .page-desc { font-size: 12px; color: var(--text-2); margin-top: 4px; max-width: 760px; line-height: 1.6; }
 .page-head .spacer { flex: 1; }
 .page-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+#content:has(.gis-bridge) { display: flex; flex-direction: column; }
+#page-body:has(> .gis-bridge), .gis-bridge { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+#content:has(.gis-heading) { scrollbar-gutter: stable; }
+#page-body:has(.gis-heading) { container-type: inline-size; animation: none; }
+.gis-heading {
+  position: sticky; top: 0; z-index: 5; display: grid; flex: none;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 52rem); align-items: center;
+  gap: 8px 12px; padding: 6px 0; margin-bottom: 8px; background: var(--bg);
+}
+.gis-toolbar {
+  display: grid; grid-template-columns: minmax(0, 1fr) 10.5rem 6.5rem 9rem;
+  gap: 8px; align-items: center; min-width: 0;
+}
+.gis-toolbar #gis-mode { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.gis-toolbar #gis-mode .seg { display: flex; align-items: center; justify-content: center; gap: 4px; padding: 0 4px; white-space: nowrap; }
+.gis-toolbar > * { height: 32px; width: 100%; min-width: 0; }
+.gis-toolbar > .btn { padding-inline: 4px; justify-content: center; white-space: nowrap; }
+.gis-toolbar .sel:disabled { opacity: .65; cursor: default; }
+.gis-instructions { margin: 0 0 14px; }
+@container (max-width: 75rem) {
+  .gis-heading { grid-template-columns: minmax(0, 1fr); }
+  .gis-toolbar { width: min(100%, 52rem); justify-self: end; }
+}
+@container (max-width: 46rem) {
+  .gis-toolbar { grid-template-columns: minmax(0, 1fr) minmax(0, .8fr) minmax(0, 1.1fr); gap: 4px; }
+  .gis-toolbar #gis-mode { grid-column: 1 / -1; }
+}
+@container (max-width: 24rem) {
+  .gis-toolbar svg { display: none; }
+  .gis-toolbar .btn, .gis-toolbar .seg, .gis-toolbar .sel { font-size: 11px; }
+}
+.gis-bridge-frame { flex: 1; min-height: 340px; width: 100%; border: 0; border-radius: 8px; background: #112a33; }
 .badge-demo {
   font-size: 10px; padding: 2px 7px; border-radius: 4px; font-weight: 400;
   background: var(--amber-bg); color: #b45309; border: 1px solid #f5d9a8; white-space: nowrap;

@@ -142,8 +142,10 @@
     }
     if (opt.yUnit) { const u = S('text', { x: padL - 7, y: padT - 3, 'text-anchor': 'end', 'font-size': 9, fill: opt.dark ? '#6d84a6' : '#8b99ab' }, svg); u.textContent = opt.yUnit; }
     labels.forEach((lb, i) => {
-      const t = S('text', { x: X(i), y: H - 8, 'text-anchor': 'middle', 'font-size': 10, fill: opt.dark ? '#6d84a6' : '#8b99ab' }, svg);
-      t.textContent = lb;
+      if (!opt.labelEvery || i % opt.labelEvery === 0 || i === n - 1) {
+        const t = S('text', { x: X(i), y: H - 8, 'text-anchor': 'middle', 'font-size': 10, fill: opt.dark ? '#6d84a6' : '#8b99ab' }, svg);
+        t.textContent = lb;
+      }
       let acc = 0;
       series.forEach(s => {
         const v = s.data[i] || 0;

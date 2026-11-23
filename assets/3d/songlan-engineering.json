@@ -1,0 +1,80 @@
+{
+  "anchors": {
+    "portal": [
+      274.2,
+      -8.5,
+      31.2
+    ],
+    "equipment": [
+      313,
+      -10.7,
+      30.431
+    ]
+  },
+  "cameras": {
+    "overview": {
+      "position": [
+        -102,
+        -165,
+        73
+      ],
+      "target": [
+        132,
+        0,
+        26
+      ],
+      "fov": 54
+    },
+    "interior": {
+      "position": [
+        286,
+        -8.5,
+        26.5
+      ],
+      "target": [
+        322,
+        -8.75,
+        29.45
+      ]
+    }
+  },
+  "devices": [
+    {
+      "id": "C-L01",
+      "position": [
+        313,
+        -10.7,
+        30.431
+      ],
+      "label": "入口段加强照明灯具",
+      "kind": "luminaire",
+      "direction": "东向（桩号递增）",
+      "chainage": "K20+038",
+      "eventId": "lights"
+    },
+    {
+      "id": "C-CCTV01",
+      "position": [
+        257,
+        -14.54,
+        29.549
+      ],
+      "label": "洞口监控摄像机",
+      "kind": "cctv",
+      "direction": "东向（桩号递增）",
+      "chainage": "K19+982"
+    },
+    {
+      "id": "C-DB01",
+      "position": [
+        266,
+        -16.25,
+        25.002
+      ],
+      "label": "照明配电控制柜",
+      "kind": "cabinet",
+      "direction": "东向（桩号递增）",
+      "chainage": "K19+991"
+    }
+  ]
+}
