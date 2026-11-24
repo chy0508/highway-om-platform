@@ -246,9 +246,19 @@ window.RoadSpatial = (() => {
     return model;
   }
 
+  function loadCesium() {
+    if (window.Cesium) return Promise.resolve();
+    return new Promise((resolve, reject) => {
+      const script = document.createElement('script');
+      script.src = new URL('vendor/cesium/Cesium.js', document.baseURI);
+      script.onload = resolve;
+      script.onerror = () => { script.remove(); reject(new Error('三维路网引擎未加载')); };
+      document.head.appendChild(script);
+    });
+  }
+
   async function initialize() {
-    if (!window.Cesium) throw new Error('三维引擎未加载');
-    const input = await fetch('assets/3d/scene.json');
+    const [input] = await Promise.all([fetch('assets/3d/scene.json', {signal: AbortSignal.timeout(15000)}), loadCesium()]);
     if (!input.ok) throw new Error('三维场景数据未找到');
     config = await input.json();
     frame = Cesium.Transforms.eastNorthUpToFixedFrame(
@@ -333,6 +343,11 @@ window.RoadSpatial = (() => {
       host.appendChild(errorBox);
     }
     errorBox.textContent = '三维场景加载失败。仍可从路线表进入运维页面。';
+    const retry = document.createElement('button');
+    retry.className = 'scene-retry';
+    retry.textContent = '重试';
+    retry.onclick = () => RoadUI.render();
+    errorBox.append(' ', retry);
     errorBox.hidden = false;
     host.dataset.sceneReady = 'error';
     console.error(error);
@@ -387,7 +402,7 @@ window.RoadSpatial = (() => {
       }
       const leavingPilot = pilotActive;
       pilotVisibility(false);
-      if (!prepared) prepared = initialize();
+      prepared ||= initialize().catch(error=>{prepared=undefined;throw error;});
       await prepared;
       if (ticket !== viewTicket) return;
       const nextStage = screen === 'network' ? 'network' : state.route === 'qinglan' ? 'detail' : 'route';
@@ -395,7 +410,7 @@ window.RoadSpatial = (() => {
       if (stageChanged) host.dataset.sceneReady = 'loading';
       if (stageChanged && stage === 'network') memorizeNetwork();
       if (nextStage === 'detail' && !detailModel) {
-        detailRequest ||= loadModel('songlan.glb');
+        detailRequest ||= loadModel('songlan.glb').catch(error=>{detailRequest=undefined;throw error;});
         detailModel = await detailRequest;
         if (ticket !== viewTicket) return;
       }

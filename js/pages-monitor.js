@@ -5,53 +5,173 @@
   'use strict';
   const D = window.DB, P = window.Pages, U = window.UI;
 
+  const cockpitNumber = value => value.toLocaleString('zh-CN',{maximumFractionDigits:1});
+
+  function panel(label, icon, content, extra = '', kind = '') {
+    return `<section class="cockpit-panel ${kind}"><div class="cockpit-panel-title"><h2>${U.icon(icon,14)}${label}</h2>${extra}</div>${content}</section>`;
+  }
+
+  function spark(values) {
+    return `<svg viewBox="0 0 72 14" class="cockpit-spark" aria-hidden="true">
+      <polyline points="${values.map((v,i)=>i*9+','+(13-v)).join(' ')}"></polyline></svg>`;
+  }
+
+  function dashboardPanels() {
+    const categories = Object.entries(D.CATS);
+    const total = D.stats().total;
+    const current = D.events.filter(event => !event.status.includes('已恢复'));
+    const resolved = D.events.length-current.length;
+    const percent = Math.round(resolved/D.events.length*100);
+    const routes = D.SECTIONS.map(section => {
+      const pending = current.filter(event => D.sectionOf(event.km)===section).length;
+      const scene = Twin.ROAD_SCENES.find(item=>D.sectionOf(item.km)===section);
+      const link = scene ? '#/gis?mode=road&scene='+scene.id : '#/gis?mode=macro';
+      return `<a class="triplet route-row" href="${link}" title="${section.name}"><span><i></i>${section.name.replace(/^K\S+ /,'')}</span><b>${section.to-section.from}</b>
+        <span class="${pending?'orange':''}">${pending || '—'}</span></a>`;
+    }).join('');
+    const facilities = [['收费设施','toll','road'],['监控设施','monitor','cam'],['隧道机电','tunnel','fan'],['内场机房','room','db']];
+    const infra = facilities.map(([label,key,icon])=>{
+      const stat = D.catStats[key];
+      return `<a href="#/devices?cat=${key}"><span class="facility-label">${U.icon(icon,12)}${label}</span><b>${stat.total}</b><b>${stat.online}</b>
+        <span class="${stat.warn+stat.offline?'orange':''}">${stat.warn+stat.offline}</span></a>`;
+    }).join('');
+    const systems = categories.map(([key,meta])=>{
+      const stat = D.catStats[key];
+      const ratio = stat.online/stat.total*100;
+      const trend = D.series('system-'+key,9,7,3,{fix:1});
+      return `<a href="#/devices?cat=${key}"><span>${meta.name}</span>${spark(trend)}<b>${ratio.toFixed(1)}%</b></a>`;
+    }).join('');
+    const composition = categories.map(([key,meta])=>{
+      const count = D.catStats[key].total;
+      const share = (count/total*100).toFixed(1);
+      return `<a href="#/devices?cat=${key}"><span>${meta.name}</span><b>${cockpitNumber(count)}</b>
+        <i style="--percent:${share}%;--geo-blue:${meta.color};--geo-teal-strong:${meta.color}"></i><small>${share}%</small></a>`;
+    }).join('');
+    let cumulative = 0;
+    const slices = categories.map(([key,meta])=>{
+      const start = cumulative;
+      cumulative += D.catStats[key].total / total * 100;
+      return `${meta.color} ${start}% ${cumulative}%`;
+    });
+    const ring = `<div class="device-ring" aria-hidden="true" style="background:conic-gradient(${slices.join(',')})"></div>`;
+    const events = D.events.map(event=>{
+      const finished = !current.includes(event);
+      const link = '#/'+event.page+'?'+new URLSearchParams({id:event.id});
+      return `<a class="fault-line" href="${link}" aria-label="${event.name}">
+        <span title="${event.name}"><i class="${finished?'done':event.level==='严重'?'waiting':'doing'}"></i>${event.name}</span>
+        <span title="${event.place}">${event.place}</span><time>${D.fmtTime(event.time).slice(-5)}</time>
+        <b class="${finished?'':'orange'}">${finished?'已恢复':'待处置'}</b></a>`;
+    }).join('');
+    return {
+      left: panel('养护路线','road',`<div class="route-matrix"><div class="triplet table-label"><span>路线名称</span><span>里程 / km</span><span>待办</span></div>
+        <div class="route-scroll">${routes}</div></div>`,'<a href="#/gis?mode=macro">路网总览 ›</a>','routes-panel')
+        + panel('沿线设施','dev',`<div class="infra-table"><div class="table-label"><span>设施</span><span>纳管</span><span>在线</span><span>异常</span></div>${infra}</div><button type="button" class="camera-preview" data-video-preview><span>${U.icon('play',14)} 隧道照明预警 · 样片</span></button>`,
+          '<button type="button" class="video-link" data-video-preview>查看视频 ›</button>')
+        + panel('关键系统状态','diag',`<div class="systems">${systems}</div>`,'<small>在线率</small>')
+        + panel('设备构成','db',`<div class="composition">${composition}</div>`,ring),
+      right: panel('故障处置','bell',`<div class="fault-summary"><div><strong>${current.length}</strong><span>当前待处置</span></div>
+        <div><strong>${resolved}</strong><span>已恢复</span></div>
+        <div class="closure-ratio" style="--closure:${percent}%"><strong>${percent}%</strong><span>列表闭环率</span></div></div>
+        <div class="fault-line table-label"><span>事件</span><span>点位 / 路线</span><span>时间</span><span>状态</span></div>
+        <div class="fault-scroll">${events}</div>`,'<a href="#/diagnosis">智能诊断 ›</a>','fault-panel')
+        + maintenanceCharts() + energyCharts()
+    };
+  }
+
+  function maintenanceCharts() {
+    const windows = new Map();
+    for (const task of D.tasks) {
+      const group = windows.get(task.window) || {count:0,hours:0,names:[]};
+      group.count++;
+      group.hours+=task.duration;
+      group.names.push(task.type);
+      windows.set(task.window,group);
+    }
+    const rows = [...windows].map(([window,group])=>`<a class="work-window" href="#/tasks" title="${group.names.join('、')}">
+      <strong>${window}</strong><b>${group.count} 项</b><small>${group.names.join(' · ')}</small><span>${group.hours} 小时</span></a>`).join('');
+    return panel('养护与检修','task',`<div class="work-windows">${rows}</div>
+      <a class="drive-panel-foot" href="#/tasks"><span>计划总工时</span><b>${D.tasks.reduce((sum,t)=>sum+t.duration,0)} 小时 ›</b></a>`,
+      `<a href="#/tasks">${D.tasks.length} 项计划 ›</a>`,'maintenance-panel');
+  }
+
+  function energyCharts() {
+    const metric = D.kpis.find(item=>item.key==='energy');
+    const latestMonth = D.costMonths[D.costMonths.length-1];
+    const tracked = D.costRecords.filter(record=>record.cat==='energy' && record.month===latestMonth);
+    const categories = [['照明','L-CIR','light'],['通风','JF','fan'],['机房','UPS','cost']].map(([name,prefix,link])=>({
+      name, link, value:tracked.filter(record=>record.asset.startsWith(prefix)).reduce((sum,record)=>sum+record.amount,0)
+    }));
+    const expense = categories.reduce((sum,category)=>sum+category.value,0);
+    const shares = categories.map(category=>expense ? category.value/expense*100 : 0);
+    const spread = Math.max(...metric.trend)-Math.min(...metric.trend) || 1;
+    const minimum = Math.min(...metric.trend);
+    const points = metric.trend.map((value,i)=>`${i*143/(metric.trend.length-1)},${49-(value-minimum)/spread*39}`).join(' ');
+    const change = (100*(metric.current/metric.baseline-1)).toFixed(1);
+    const ranked = categories.map((item,i)=>({...item,share:shares[i]})).sort((a,b)=>b.value-a.value);
+    return panel('能效分析','opt',`<a href="#/kpi" class="energy-summary">
+      <div><small>单位工况能耗</small><strong>${metric.current.toFixed(2)}</strong><span>${metric.unit}</span></div>
+      <div class="energy-change"><svg viewBox="0 0 143 57" preserveAspectRatio="none" aria-label="能耗变化趋势"><polyline points="${points}"/></svg><small>较基线 ${change}%</small></div></a>
+      <div class="cost-ranking"><header><strong>本月能源费用样例</strong><span class="cost-stack" aria-hidden="true">${ranked.map(({share},i)=>`<i style="flex:${share};background:${['#6faeff','#78cece','#bc9aff'][i]}"></i>`).join('')}</span><span>万元</span></header>
+      ${ranked.map(({name,value,link,share})=>`<a href="#/${link}" class="cost-rank"><span>${name}</span><i><em style="width:${share}%"></em></i><b>${value.toFixed(1)}</b><small>${share.toFixed(0)}%</small></a>`).join('')}</div>`,
+      '<a href="#/fan">运行优化 ›</a>','efficiency-panel');
+  }
+
   /* ================= 综合驾驶舱 ================= */
   P.dashboard = {
     title: '综合驾驶舱 · 运行总览', group: '综合驾驶舱',
-    render(el, params) {
-      const s = D.stats();
-      const major = D.events.filter(e => e.level === '严重' && e.status !== '已恢复' && !e.status.includes('已确认')).length;
-      let range = '7d';
-      const daysAxis = count => Array.from({length: count}, (_, i) =>
-        D.fmtTime(new Date(D.NOW.getTime() - (count - 1 - i) * 86400000), 'md'));
-      const cm = D.costMonthly[D.costMonthly.length - 1];
-      const totalCost = cm.energy + cm.parts + cm.service + cm.field + cm.emergency;
-      const stats = [
-        ['在线设备', s.online, 'online'], ['异常设备', s.warn, 'warn'], ['离线设备', s.offline, 'offline']
+    render(el) {
+      const panels = dashboardPanels();
+      const stats = D.stats();
+      const pending = D.events.filter(event=>!event.status.includes('已恢复')).length;
+      const metrics = [
+        ['养护总里程', D.ROAD.end-D.ROAD.start,'km','road','gis'],
+        ['纳管设备', cockpitNumber(stats.total),'台','dev','devices'],
+        ['设备在线率', stats.onlineRate.toFixed(1),'%','diag','devices'],
+        ['待处置事件', pending,'起','bell','diagnosis']
       ];
-      const panel = (title, extra, html, cls = '') => `<section class="drive-panel ${cls}"><header><h2>${title}</h2>${extra}</header>${html}</section>`;
+      const navKeys = ['dashboard','gis','devices','diagnosis','tasks','fan'];
+      const visibleKeys = new Set(Array.from(document.querySelectorAll('#nav [data-page],#nav [data-grp]'),
+        item=>item.dataset.page || item.dataset.grp));
+      const navigation = navKeys.filter(key=>key==='dashboard'||visibleKeys.has(key)).map(key=>{
+        const item = U.NAV.find(entry=>entry.key===key);
+        return `<a href="#/${key}"${key==='dashboard'?' aria-current="page"':''}>${U.icon(item.icon,14)}${item.name}</a>`;
+      }).join('');
+      const hours = new Array(24).fill(0);
+      D.alarms.forEach(alarm => {
+        const elapsed = Math.floor((D.NOW-alarm.start)/3600000);
+        if (elapsed>=0 && elapsed<hours.length) hours[hours.length-1-elapsed]++;
+      });
+      const hourlyMax = Math.max(1,...hours);
+      const alarms = hours.reduce((sum,count)=>sum+count,0);
+      const alarmBars = hours.map((count,index) => {
+        const hour = new Date(D.NOW.getTime()-(23-index)*3600000).getHours();
+        return `<i data-hour="${index%4===0?String(hour).padStart(2,'0'):''}" style="--level:${Math.max(8,count/hourlyMax*100)}%" title="${hour}时 · ${count} 起"></i>`;
+      }).join('');
       el.innerHTML = `<div class="drive" data-boards="${matchMedia('(max-width: 900px)').matches ? 'off' : 'on'}">
         <div id="dash-map" aria-label="A高速示范路段交互地图"></div>
         <header class="drive-head">
           <div class="drive-brand">
             <button class="drive-menu" type="button" aria-label="业务导航" aria-controls="sidebar" aria-expanded="false">☰</button>
-            <span class="drive-brand-mark">${U.icon('road', 22)}</span><div><small>高速公路机电智能运维平台</small><h1>综合驾驶舱</h1></div>
+            <img src="assets/platform-logo.svg" width="24" height="24" alt="" class="drive-brand-mark"><h1>机电智能运维平台 <span>· 综合驾驶舱</span></h1>
           </div>
-          <div class="drive-road"><span class="drive-line"></span><strong>${D.ROAD.name}</strong><span>K0+000 — K58+000</span></div>
+          <nav class="drive-top-nav" aria-label="驾驶舱业务导航">${navigation}</nav>
           <div class="drive-actions"><button class="drive-toggle" type="button"></button></div>
         </header>
         <button type="button" class="drive-nav-mask" aria-label="关闭业务导航"></button>
-        <div class="drive-mobile-tabs"><button data-side="left" aria-pressed="true">设备与成本</button><button data-side="right" aria-pressed="false">事件与能耗</button></div>
-        <aside class="drive-rail drive-left" aria-label="设备与成本看板">
-          ${panel('设备运行', '<span>六大专业</span>', `<div class="drive-overview">
-            <button class="drive-total" onclick="UI.go('devices')"><span>纳管设备</span><strong>${s.total.toLocaleString()}<small>台</small></strong></button>
-            <div class="drive-ring" style="--rate:${s.onlineRate}%"><div><b>${s.onlineRate.toFixed(1)}<small>%</small></b><span>在线率</span></div></div></div>
-            <div class="drive-status">${stats.map(([name,val,key])=>`<button data-status="${key}" onclick="UI.go('devices',{status:'${key}'})"><i></i>${name}<b>${val.toLocaleString()}</b></button>`).join('')}</div>`)}
-          ${panel('专业设备状态', '<span>单位 · 台</span>', '<div id="dash-cats"></div>')}
-          ${panel('本月运维成本', '<a href="#/cost">成本分析 ›</a>', `<div class="drive-cost-total"><strong>${totalCost.toFixed(1)}</strong> 万元</div><div id="dash-cost"></div>`)}
-          ${panel('业务场景', '', '<nav id="dash-shortcuts" aria-label="业务场景"></nav>')}
-        </aside>
-        <aside class="drive-rail drive-right" aria-label="事件与能耗看板">
-          ${panel('重点事件','<a href="#/diagnosis">全部事件 ›</a>',`<div class="drive-alert-totals">
-              <button onclick="UI.go('diagnosis')"><span>今日告警</span><b>${D.todayAlarms}<small>条</small></b></button>
-              <button onclick="UI.go('diagnosis',{level:'严重'})"><span>未解除重大异常</span><b>${major}<small>起</small></b></button></div>
-            <div class="drive-period" id="dash-range" aria-label="看板统计周期"><button data-r="today">今日</button><button data-r="7d">近7天</button><button data-r="30d">近30天</button></div>
-            <div id="dash-evsum"></div><div id="dash-events"></div>`,'drive-event-panel')}
-          ${panel('隧道能耗', '<span>青岭隧道 · kWh</span>', '<div id="dash-energy"></div>')}
-        </aside>
-        <section class="drive-history"><header><h2>告警趋势</h2><span id="alarm-range-label"></span></header><div id="dash-alarm"></div></section>
+        <div class="drive-mobile-tabs"><button data-side="left" aria-pressed="true">路线与设备</button><button data-side="right" aria-pressed="false">处置与能效</button></div>
+        <section class="drive-kpis" aria-label="${D.ROAD.name}运行指标">${metrics.map(([label,value,unit,icon,link])=>`
+          <a href="#/${link}">${U.icon(icon,17)}<div><b>${value}</b><small>${unit}</small><span>${label}</span></div></a>`).join('')}</section>
+        <aside class="drive-rail drive-left" aria-label="路线与设备看板">${panels.left}</aside>
+        <aside class="drive-rail drive-right" aria-label="处置与能效看板">${panels.right}</aside>
+        <section class="drive-alert-timeline" aria-label="近24小时告警趋势">
+          <a href="#/diagnosis">${U.icon('bell',14)}近 24 小时告警 <b>${alarms}</b> 起</a><div>${alarmBars}</div>
+        </section>
       </div>`;
       const drive = el.querySelector('.drive');
+      drive.querySelectorAll('[data-video-preview]').forEach(button=>button.onclick=()=>{
+        U.modal('隧道照明预警 · 演示视频',
+          '<video controls autoplay playsinline preload="metadata" style="display:block;width:100%;max-height:68vh;background:#071324" src="assets/tunnel-lighting-demo.mp4"></video>');
+      });
       const toggle = drive.querySelector('.drive-toggle');
       function setBoards(open) {
         drive.dataset.boards = open ? 'on' : 'off';
@@ -75,91 +195,14 @@
       drive.querySelector('.drive-nav-mask').onclick = () => showMenu(false);
       Twin.geoMap(el.querySelector('#dash-map'), {
         fill: true,
-                onSelect(sel) {
-          if (sel.kind === 'event') { const e = D.events.find(x => x.id === sel.code); U.go(e.page, { id: sel.code }); }
+        onSelect(sel) {
+          if (sel.kind === 'event') { const e = D.events.find(x => x.id === sel.code); if (e) U.go(e.page, { id: sel.code }); }
           else if (sel.kind === 'tunnel') U.go('gis', { mode: 'tunnel', scene: sel.code });
           else if (sel.kind === 'room') U.go('gis', { mode: 'room', scene: sel.code });
           else if (sel.kind === 'toll') U.go('devices', { cat: 'toll' });
           else U.openDevice(sel.code);
         }
       });
-      const shortcuts = [
-        ['摄像机离线', 'scene-camera'], ['照明异常', 'scene-lighting'], ['风机优化', 'fan'],
-        ['照明调光', 'light'], ['作业统筹', 'tasks'], ['成效评价', 'kpi']
-      ];
-      el.querySelector('#dash-shortcuts').innerHTML = shortcuts.map(([name, page]) =>
-        `<a href="#/${page}">${name}<span>›</span></a>`).join('');
-      const costs = [['能源',cm.energy],['维修',cm.service],['备件',cm.parts],['作业',cm.field],['应急',cm.emergency]];
-      el.querySelector('#dash-cost').innerHTML = `<div class="drive-cost-bar">${costs.map(([,v],i)=>
-        `<i style="width:${v / totalCost * 100}%;--i:${i}"></i>`).join('')}</div><div class="drive-cost-key">${costs.map(([name,v],i)=>
-        `<span><i style="--i:${i}"></i>${name} <b>${v.toFixed(1)}</b></span>`).join('')}</div>`;
-      el.querySelector('#dash-cats').innerHTML = Object.entries(D.CATS).map(([key,meta]) => {
-        const cs = D.catStats[key];
-        return `<button class="drive-cat" onclick="UI.go('devices',{cat:'${key}'})" title="${meta.name} · 异常 ${cs.warn} 台，离线 ${cs.offline} 台">
-          <span>${meta.name}</span><i><i style="width:${100 * cs.total / s.total}%;background:${meta.color}"></i></i><b>${cs.total}</b></button>`;
-      }).join('');
-      function drawRange(r) {
-        range = r;
-        // 事件列表
-        const hours = r === 'today' ? 24 : r === '7d' ? 168 : 720;
-        const evs = D.events.filter(e => (D.NOW - e.time) / 3600000 <= hours);
-        el.querySelector('#dash-evsum').innerHTML = [['严重', '#ff777c'], ['重要', '#eaba73'], ['一般', '#70adf7'], ['提示', '#a3b4c5']]
-          .map(([l, c]) => `<span><i style="background:${c}"></i>${l} <b>${evs.filter(e => e.level === l).length}</b></span>`).join('');
-        el.querySelector('#dash-events').innerHTML = evs.length ? evs.map(e => `
-          <button class="drive-event" onclick="UI.go('${e.page}',{id:'${e.id}'})">
-            <span class="drive-event-level" data-level="${e.level}">${e.level}</span><strong>${e.name}</strong>
-            <small>${e.place} · 影响 ${e.affected.length} 台</small><time>${D.fmtTime(e.time)}</time>
-          </button>`).join('') : '<div class="empty">该时段无重点事件</div>';
-        el.querySelectorAll('#dash-range button').forEach(btn=>btn.setAttribute('aria-pressed', String(btn.dataset.r===r)));
-        // 告警趋势
-        const ab = el.querySelector('#dash-alarm');
-        el.querySelector('#alarm-range-label').textContent = r === 'today' ? '今日 · 条/小时' : r === '7d' ? '近7天 · 条/日' : '近30天 · 条/日';
-        if (r === 'today') {
-          const labels = D.hoursAxis(12, 2);
-          const data = D.series('alarmToday', 12, 2.4, 3, { spikeAt: 5, spike: 20, fix: 0 }).map(v => Math.max(0, Math.round(v)));
-          Charts.bar(ab, { labels, series: [{ name: '告警数', color: '#2f7bff', data }], height: 84, dark: true, labelEvery: 2, yUnit: '条', legend: false });
-        } else {
-          const n = r === '7d' ? 7 : 30;
-          const labels = daysAxis(n);
-          const rr = D.rng('alarm' + r);
-          const crit = [], major = [], minor = [];
-          for (let i = 0; i < n; i++) {
-            crit.push(i === n - 1 ? 2 : Math.floor(rr() * 2));
-            major.push(i === n - 1 ? 8 : 2 + Math.floor(rr() * 5));
-            minor.push(4 + Math.floor(rr() * 8));
-          }
-          Charts.bar(ab, { labels, series: [{ name: '严重', color: '#ef4444', data: crit }, { name: '重要', color: '#f59e0b', data: major }, { name: '一般/提示', color: '#93b4e8', data: minor }], height: 84, dark: true, labelEvery: Math.ceil(n / 7), legend: false, yUnit: '条' });
-        }
-        // 能耗
-        const n2 = r === 'today' ? 12 : r === '7d' ? 7 : 30;
-        const labels2 = r === 'today' ? D.hoursAxis(12, 2) : daysAxis(n2);
-        const fan = D.series('fanE' + r, n2, r === 'today' ? 96 : 2280, r === 'today' ? 40 : 380, { daily: true, cycles: r === 'today' ? 1 : 3, fix: 0 });
-        const light = D.series('lightE' + r, n2, r === 'today' ? 62 : 1480, r === 'today' ? 22 : 220, { daily: true, cycles: r === 'today' ? 1 : 3, fix: 0 });
-        Charts.line(el.querySelector('#dash-energy'), {
-          labels: labels2,
-          series: [{ name: '风机用电', color: '#2f7bff', data: fan, unit: 'kWh' }, { name: '照明用电', color: '#f59e0b', data: light, unit: 'kWh' }],
-          height: 124, dark: true, yUnit: 'kWh', zero: true, area: true
-        });
-      }
-      const compact = matchMedia('(max-width: 900px)');
-      const history = drive.querySelector('.drive-history');
-      const rightRail = drive.querySelector('.drive-right');
-      function arrangeCharts() {
-        (compact.matches ? rightRail : drive).appendChild(history);
-      }
-      arrangeCharts();
-      const observer = new ResizeObserver(() => {
-        if (!drive.isConnected) { observer.disconnect(); return; }
-        if (rightRail.contains(history) !== compact.matches) arrangeCharts();
-        if (drive.clientWidth) drawRange(range);
-      });
-      observer.observe(drive);
-      observer.observe(el.querySelector('#dash-energy'));
-      drawRange(range);
-      el.querySelectorAll('#dash-range button').forEach(b => b.addEventListener('click', () => {
-        el.querySelectorAll('#dash-range button').forEach(x => x.classList.remove('on'));
-        b.classList.add('on'); drawRange(b.dataset.r);
-      }));
     }
   };
 

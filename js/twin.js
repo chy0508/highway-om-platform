@@ -1480,41 +1480,59 @@
       renderOverlay(v);
       if (loaded) loadNote.style.display = 'none';
     }
-    // 拖拽平移
+    let frame = 0;
+    function requestMapFrame() {
+      if (!frame) frame=requestAnimationFrame(()=>{
+        frame=0;
+        render();
+      });
+    }
     let drag = null;
     function onDown(ev) {
-      if (ev.target.closest('.gm-n') || ev.target.closest('.gm-ctl')) return;
-      drag = { x: ev.clientX, y: ev.clientY };
-      wrap.setPointerCapture(ev.pointerId);
-      wrap.classList.add('grabbing');
+      if (!ev.isPrimary || ev.button!==0 || ev.target.closest('.gm-ctl')) return;
+      drag={id:ev.pointerId,x:ev.clientX,y:ev.clientY,origin:px(center.lng,center.lat),moving:false};
+      (ev.target.closest('.gm-n') || wrap).setPointerCapture(ev.pointerId);
     }
     function onMove(ev) {
-      if (!drag) return;
-      homeView = false;
-      const c = px(center.lng, center.lat);
-      const ll = unpx(c[0] - (ev.clientX - drag.x), c[1] - (ev.clientY - drag.y));
-      center = { lng: ll[0], lat: Math.max(-80, Math.min(80, ll[1])) };
-      drag = { x: ev.clientX, y: ev.clientY };
-      render();
+      if (!drag || drag.id!==ev.pointerId) return;
+      const dx=ev.clientX-drag.x, dy=ev.clientY-drag.y;
+      if (!drag.moving) {
+        if (Math.hypot(dx,dy)<5) return;
+        drag.moving=true;
+        wrap.setPointerCapture(ev.pointerId);
+        wrap.classList.add('grabbing');
+      }
+      homeView=false;
+      const [lng,lat]=unpx(drag.origin[0]-dx,drag.origin[1]-dy);
+      center={lng,lat:Math.max(-80,Math.min(80,lat))};
+      requestMapFrame();
     }
-    function onUp() { drag = null; wrap.classList.remove('grabbing'); }
-    function zoomAt(dz, mx, my) {
-      const nz = Math.max(8, Math.min(14, z + dz));
-      if (nz === z) return;
-      homeView = false;
-      const v = view();
-      const anchor = unpx(v.tl[0] + mx, v.tl[1] + my);
-      z = nz;
-      cache.forEach(img => img.remove()); cache.clear();
-      const c = px(anchor[0], anchor[1]);
-      const ll = unpx(c[0] - v.w / 2 + mx, c[1] - v.h / 2 + my);
-      center = { lng: ll[0], lat: ll[1] };
-      render();
+    function onUp(ev) {
+      if (drag?.id!==ev.pointerId) return;
+      drag=null;
+      wrap.classList.remove('grabbing');
+    }
+    function zoomAt(delta, mx, my) {
+      const level=Math.log2(world()/256);
+      const next=Math.max(8,Math.min(14,level+delta));
+      if (Math.abs(next-level)<0.00001) return;
+      const v=view();
+      const anchor=unpx(v.tl[0]+mx,v.tl[1]+my);
+      homeView=false;
+      z=Math.round(next);
+      tileSize=256*Math.pow(2,next-z);
+      const point=px(anchor[0],anchor[1]);
+      const [lng,lat]=unpx(point[0]+v.w/2-mx,point[1]+v.h/2-my);
+      center={lng,lat:Math.max(-80,Math.min(80,lat))};
+      requestMapFrame();
     }
     function onWheel(ev) {
       ev.preventDefault();
-      const r = wrap.getBoundingClientRect();
-      zoomAt(ev.deltaY < 0 ? 1 : -1, ev.clientX - r.left, ev.clientY - r.top);
+      if (drag || !ev.deltaY) return;
+      const unit=ev.deltaMode===1?16:ev.deltaMode===2?wrap.clientHeight:1;
+      const delta=Math.max(-1,Math.min(1,-ev.deltaY*unit/280));
+      const rect=wrap.getBoundingClientRect();
+      zoomAt(delta,ev.clientX-rect.left,ev.clientY-rect.top);
     }
     wrap.addEventListener('pointerdown', onDown);
     wrap.addEventListener('pointermove', onMove);
@@ -1523,7 +1541,7 @@
     wrap.addEventListener('wheel', onWheel, { passive: false });
     wrap.querySelectorAll('.gm-ctl button').forEach(b => b.addEventListener('click', () => {
       const dz = +b.dataset.z;
-      if (dz === 0) { homeView = true; z = fitZoom(); center = { lng: HOME.lng, lat: HOME.lat }; cache.forEach(img => img.remove()); cache.clear(); render(); }
+      if (dz === 0) { homeView = true; tileSize = 256; z = fitZoom(); center = { lng: HOME.lng, lat: HOME.lat }; cache.forEach(img => img.remove()); cache.clear(); render(); }
       else zoomAt(dz, wrap.clientWidth / 2, wrap.clientHeight / 2);
     }));
     const ro = new ResizeObserver(() => { if (homeView) z = fitZoom(); render(); });
@@ -1534,6 +1552,7 @@
         failed = true;
         clearTimeout(failTimer);
         ro.disconnect();
+        cancelAnimationFrame(frame);
         cache.forEach(img => img.remove()); cache.clear();
         wrap.remove();
         const i = instances.indexOf(inst);

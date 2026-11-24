@@ -4,14 +4,25 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light dark">
-  <title>路维智策——公路机电智能运维决策平台 · 三维驾驶舱</title>
-  <link rel="icon" href="data:,">
+  <title>机电智能运维平台 · 桥隧场景</title>
+  <link rel="icon" type="image/svg+xml" href="assets/platform-logo.svg">
   <link rel="stylesheet" href="demo/style.css">
   <link rel="stylesheet" href="demo/cockpit.css">
-  <script>window.CESIUM_BASE_URL = new URL('vendor/cesium/', document.baseURI).href;</script>
+  <script>
+    window.CESIUM_BASE_URL = new URL('vendor/cesium/', document.baseURI).href;
+    if (location.hash === '#/route/qinglan') {
+      const model = document.createElement('link');
+      model.rel = 'preload';
+      model.as = 'fetch';
+      model.crossOrigin = 'anonymous';
+      model.href = 'assets/3d/songlan-engineering.glb';
+      document.head.appendChild(model);
+    }
+  </script>
   <script type="importmap">
     {"imports":{"three":"./vendor/three/build/three.module.js","three/addons/":"./vendor/three/examples/jsm/"}}
   </script>
+  <link rel="modulepreload" href="demo/songlan.js">
 </head>
 <body class="cockpit-host">
   <div id="spatial">
@@ -22,16 +33,10 @@
   </div>
   <div id="app"></div>
   <noscript>请启用 JavaScript 以打开三维原型。</noscript>
-  <script src="vendor/cesium/Cesium.js"></script>
   <script src="demo/data.js"></script>
   <script src="demo/model.js"></script>
-  <script src="demo/map.js"></script>
   <script src="demo/network.js"></script>
   <script src="demo/ui.js"></script>
-  <script src="demo/overview.js"></script>
-  <script src="demo/maintenance.js"></script>
-  <script src="demo/diagnostics.js"></script>
-  <script src="demo/energy.js"></script>
   <script src="demo/spatial.js"></script>
   <script src="demo/cockpit.js"></script>
   <script src="demo/app.js"></script>

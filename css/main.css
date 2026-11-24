@@ -61,12 +61,7 @@ button { font-family: var(--font); }
 }
 .brand { padding: 14px 16px 12px; border-bottom: 1px solid rgba(255,255,255,.07); }
 .brand-logo { display: flex; align-items: center; gap: 9px; }
-.brand-mark {
-  width: 32px; height: 32px; border-radius: 7px; flex: 0 0 32px;
-  background: linear-gradient(135deg, var(--blue) 0%, var(--cyan) 100%);
-  display: flex; align-items: center; justify-content: center;
-}
-.brand-mark svg { width: 20px; height: 20px; }
+.brand-mark {display:block;flex:none;}
 .brand-name { font-size: 14px; font-weight: 700; color: #fff; letter-spacing: .5px; line-height: 1.25; }
 .brand-sub { font-size: 10px; color: #7e93b3; margin-top: 2px; letter-spacing: .4px; }
 .demo-chip {
@@ -178,7 +173,7 @@ button { font-family: var(--font); }
   .gis-toolbar svg { display: none; }
   .gis-toolbar .btn, .gis-toolbar .seg, .gis-toolbar .sel { font-size: 11px; }
 }
-.gis-bridge-frame { flex: 1; min-height: 340px; width: 100%; border: 0; border-radius: 8px; background: #112a33; }
+.gis-bridge-frame { flex: 1; min-height: 340px; width: 100%; border: 0; border-radius: 8px; background: #102746; }
 .badge-demo {
   font-size: 10px; padding: 2px 7px; border-radius: 4px; font-weight: 400;
   background: var(--amber-bg); color: #b45309; border: 1px solid #f5d9a8; white-space: nowrap;

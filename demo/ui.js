@@ -13,116 +13,90 @@ link:'m8 14-2 2a3 3 0 0 0 4 4l4-4a3 3 0 0 0 0-4 M16 10l2-2a3 3 0 0 0-4-4l-4 4a3 
 truck:'M2 6h12v11H2z M14 10h4l4 4v3h-8 M8 18a2 2 0 1 1-4 0 2 2 0 0 1 4 0Z M20 18a2 2 0 1 1-4 0 2 2 0 0 1 4 0Z'
 };
 const ico=(key,size=18)=>`<svg aria-hidden="true" class="ico" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"><path d="${icons[key]||icons.layers}"/></svg>`;
-const pages={overview:['路段总览','home'],plan:['养护与检修','plan'],diag:['故障诊断','diag'],energy:['能效分析','energy']};
-const cockpitEnabled=document.body.classList.contains('cockpit-host');
-function getTheme(){
-  if(!cockpitEnabled)return 'light';
-  try{return localStorage.getItem('luoheng-theme')==='light'?'light':'dark';}catch{return 'dark';}
-}
-const init=()=>({page:cockpitEnabled?'network':'overview',route:'qinglan',mode:'all',theme:getTheme(),site:'B',event:'camera',cases:{},planTab:'task',combine:true,late:false,budget:16000,age:3,kind:'light',weather:'sun',traffic:'high',strategy:'control',menu:false,assets:false});
-let state=init();const views={};
+const state={page:'overview',route:'qinglan',mode:'all',theme:'dark',site:'C',cases:{},assets:false};
 function readRoute(){
   const id=location.hash.match(/^#\/route\/([a-z]+)$/)?.[1];
   if(id&&RoadNetwork.route(id)){
-    if(state.route!==id||state.page==='network')state.site=id==='qinglan'?'C':'B';
+    if(state.route!==id)state.site=id==='qinglan'?'C':'B';
     state.route=id;state.page='overview';
-  }else state.page='network';
+  }else {
+    const target=new URL('index.html#/dashboard',document.baseURI);
+    window.top.location.replace(target.href);
+  }
 }
-if(cockpitEnabled){
-  readRoute();
-  window.addEventListener('popstate',()=>{readRoute();render(true);});
-}
+readRoute();
+window.addEventListener('popstate',()=>{readRoute();render(true);});
 const fmt=n=>Number(n).toLocaleString('zh-CN',{maximumFractionDigits:1});
 const btn=(text,action,val='',cls='btn')=>`<button type="button" class="${cls}" data-action="${action}" data-value="${val}">${text}</button>`;
-const seg=(action,choices,value)=>`<div class="seg">${choices.map(([v,label])=>`<button type="button" data-action="${action}" data-value="${v}" aria-pressed="${String(value)===v}" class="${String(value)===v?'on':''}">${label}</button>`).join('')}</div>`;
-const pill=(s,tone='')=>`<span class="pill ${tone}"><i></i>${s}</span>`;
-const heading=(title,aside='',icon='')=>`<div class="sectionhead"><h2>${icon?`<span class="section-icon">${ico(icon,17)}</span>`:''}${title}</h2>${aside}</div>`;
-const stat=(label,val,unit,icon,sub,tone='')=>`<article class="stat ${tone}"><div class="statlabel">${label}<span class="stat-icon">${ico(icon,17)}</span></div><div class="statval">${val}<small>${unit}</small></div><div class="statnote">${sub}</div></article>`;
-const line=(key,value)=>`<div class="kv"><span>${key}</span><strong>${value}</strong></div>`;
-function currentCase(){return state.cases[state.event]||{evidence:'power',step:0,result:'freeze',closed:false};}
-function caseUpdate(changes){state.cases[state.event]={...currentCase(),...changes};}
 function alerts(){return M.events.filter(e=>!state.cases[e.id]?.closed);}
-function go(page){state.page=pages[page]||(cockpitEnabled&&page==='network')?page:'overview';state.menu=false;}
-function openEvent(id){
-  const e=M.event(id);state.event=e.id;state.site=e.site;
-  if(cockpitEnabled)state.route='qinglan';
-  go('diag');
+const platformPages={
+  dashboard:['dashboard','综合驾驶舱'],
+  devices:['devices','设备监测'],
+  plan:['tasks','现场作业统筹'],
+  diag:['diagnosis','智能诊断'],
+  energy:['fan','运行优化']
+};
+const parentUI = window.parent === window ? null : window.parent.UI;
+function platformLabel(page) {
+  const [key,label] = platformPages[page];
+  return parentUI?.NAV.find(item=>item.key===key)?.name || label;
 }
-function goToDemoSite(site,page){
-  if(!cockpitEnabled||!M.sites.some(item=>item.id===site))return;
-  state.route='qinglan';state.site=site;
-  if(page==='plan')state.planTab='task';
-  go(page);
+function openPlatform(page, event, params) {
+  const diagnostic = {camera:'scene-camera',lights:'scene-lighting'}[event];
+  const destination = diagnostic || platformPages[page][0];
+  if (parentUI) return parentUI.go(destination,params);
+  const target = new URL('index.html', document.baseURI);
+  const query = new URLSearchParams(params);
+  target.hash = '#/' + destination + (query.size ? '?' + query : '');
+  window.location.href = target.href;
 }
-function nav(){
-const items=Object.entries(pages).map(([page,[name,icon]])=>{
-  const current=state.page===page;
-  return `<button type="button" class="navbtn${current?' selected':''}" data-action="page" data-value="${page}"${current?' aria-current="page"':''}>
-    <span class="nav-icon">${ico(icon)}</span><span>${name}</span>${ico('chev',14)}
-  </button>`;
-});
-return `<aside class="rail ${state.menu?'open':''}" id="workspace-rail"><div class="brand"><span class="brand-icon">${ico('brand',26)}</span><div><strong>路维智策</strong><small>公路机电智能运维决策平台</small></div></div>
-${cockpitEnabled?'<button type="button" class="return-network" data-action="page" data-value="network" aria-label="返回路网总览">‹　路网总览</button>':''}
-<div class="railgroup">工作空间</div><nav aria-label="工作空间">${items.join('')}</nav>
-</aside>`;}
 function render(toTop=false){
-const focused=document.activeElement?.dataset;
-const oldAction=focused?.action,oldValue=focused?.value;
-if(cockpitEnabled&&window.RoadCockpit?.render()){
-  if(toTop)window.scrollTo(0,0);
-  if(oldAction)Array.from(document.querySelectorAll('button[data-action]'))
-    .find(el=>el.dataset.action===oldAction&&el.dataset.value===oldValue)?.focus({preventScroll:true});
-  return;
-}
-const [title,pageIcon]=pages[state.page];
-const descriptors={overview:'青岚高速东段设备运行与当班任务',plan:'检修窗口、作业资源与年度更新预算',diag:'关联告警、证据回放与工单核验',energy:'隧道照明与通风运行策略比较'};
-document.querySelector('#app').innerHTML=`${nav()}<main class="main"><header class="top"><div class="crumb"><button type="button" class="mobile-menu" data-action="menu" data-value="" aria-label="工作空间菜单" aria-expanded="${state.menu}" aria-controls="workspace-rail">${ico('menu')}</button><span class="crumb-root">运营管理中心</span>${ico('chev',12)}<strong>${title}</strong></div><span class="date">${ico('calendar',15)}2026.11.23</span></header>
-<div class="body"><div class="pagehead"><div class="page-title"><span class="page-icon">${ico(pageIcon,24)}</span><div>${state.page==='overview'?'<div class="overline"><i></i>当班快照 · 09:45</div>':''}<h1>${title}</h1><p>${descriptors[state.page]}</p></div></div><div class="loc">${ico('pin',15)}青岚高速 · 东段</div></div>${views[state.page]()}</div></main><div id="announce" role="status" aria-live="polite" class="sr"></div>`;
-RoadMap.draw(document.getElementById('corridorMap'));
-if(state.page==='energy'){
-const v=M.energy(state.site,state.kind,state.weather,state.traffic,state.strategy);
-RoadMap.profile(document.getElementById('energyChart'),v.profile);
-}
-if(toTop)window.scrollTo(0,0);
-if(oldAction==='page'&&window.matchMedia('(max-width: 700px)').matches){
-  document.querySelector('.mobile-menu').focus({preventScroll:true});
-}else if(oldAction&&(!toTop||oldAction==='page')){
-  const target=Array.from(document.querySelectorAll('[data-action]'))
-    .find(x=>x.dataset.action===oldAction&&x.dataset.value===oldValue);
-  target?.focus({preventScroll:true});
-}
+  const focus = document.activeElement?.dataset;
+  RoadCockpit.render();
+  if(toTop) window.scrollTo(0,0);
+  if(focus?.action) Array.from(document.querySelectorAll('button[data-action]'))
+    .find(button=>button.dataset.action===focus.action && button.dataset.value===focus.value)
+    ?.focus({preventScroll:true});
 }
 const actions={
-page:v=>{if(v==='diag'&&M.event(state.event).site!==state.site){state.event=M.events.find(e=>e.site===state.site).id;}go(v);},
-route:v=>{if(cockpitEnabled&&RoadNetwork.route(v)){state.route=v;state.site=v==='qinglan'?'C':'B';go('overview');}},
-'route-site':v=>goToDemoSite(v,'overview'),'plan-site':v=>goToDemoSite(v,'plan'),'energy-site':v=>goToDemoSite(v,'energy'),
-mode:v=>{state.mode=v;},
-theme:()=>{state.theme=state.theme==='dark'?'light':'dark';try{localStorage.setItem('luoheng-theme',state.theme);}catch{}},
-assets:()=>{state.assets=!state.assets;},site:v=>{if(cockpitEnabled&&state.site===v)window.RoadSpatial?.focusSite(v);state.site=v;},event:openEvent,menu:()=>{state.menu=!state.menu;},
-planTab:v=>{state.planTab=v;},combine:v=>{state.combine=v==='true';},late:v=>{state.late=v==='true';},
-budget:v=>{state.budget=Number(v);},age:v=>{state.age=Number(v);},
-evidence:v=>{const c=currentCase();if(!c.closed && c.evidence!==v)caseUpdate({evidence:v,step:0,result:'freeze'});},step:v=>caseUpdate({step:Number(v)}),
-result:v=>{if(!currentCase().closed)caseUpdate({result:v});},
-reopen:()=>{if(currentCase().closed)caseUpdate({result:'freeze',step:2,closed:false});},close:()=>{if(currentCase().step===2&&M.canClose(currentCase().result))caseUpdate({closed:true});},
-kind:v=>{state.kind=v;},weather:v=>{state.weather=v;},traffic:v=>{state.traffic=v;},strategy:v=>{state.strategy=v;}
+  page(value) {
+    if (platformPages[value]) return openPlatform(value);
+    state.page=value;
+  },
+  route(value) {
+    if (!RoadNetwork.route(value)) return;
+    state.route=value;
+    state.site=value==='qinglan'?'C':'B';
+    state.page='overview';
+  },
+  'route-site'(value) {
+    state.route='qinglan';
+    state.site=value;
+    state.page='overview';
+  },
+  'plan-site':()=>openPlatform('plan'),
+  'energy-site':()=>openPlatform('energy'),
+  mode(value){state.mode=value;},
+  assets(){state.assets=!state.assets;},
+  'device-category'(cat){openPlatform('devices',null,{cat});},
+  site(value) {
+    if(state.site===value) RoadSpatial.focusSite(value);
+    state.site=value;
+  },
+  event(value){openPlatform('diag',value);}
 };
 function dispatch(action,value,element){
-  if(cockpitEnabled&&window.RoadCockpit?.sceneAction(action,value,element))return;
+  if(RoadCockpit.sceneAction(action,value,element))return;
   const old=state.page;
   if(actions[action]){
     actions[action](value);
-    if(cockpitEnabled){
-      const hash=state.page==='network'?'#/network':'#/route/'+state.route;
-      if(location.hash!==hash)history.pushState(null,'',hash);
-    }
+    const hash='#/route/'+state.route;
+    if(location.hash!==hash)history.pushState(null,'',hash);
     render(old!==state.page);
   }
 }
 function act(el){dispatch(el.dataset.action,el.dataset.value??el.value,el);}
 document.addEventListener('click',e=>{const el=e.target.closest('button[data-action]');if(el&&!el.disabled)act(el);});
 document.addEventListener('change',e=>{if(e.target.matches('select[data-action],input[data-action]'))act(e.target);});
-function select(action,items,value,label){return `<label class="selectlabel">${label}<select data-action="${action}">${items.map(([v,label])=>`<option value="${v}" ${String(value)===v?'selected':''}>${label}</option>`).join('')}</select></label>`;}
-let resizeId;
-window.addEventListener('resize',()=>{clearTimeout(resizeId);resizeId=setTimeout(()=>{RoadMap.draw(document.querySelector('#corridorMap'));if(state.page==='energy'){const v=M.energy(state.site,state.kind,state.weather,state.traffic,state.strategy);RoadMap.profile(document.querySelector('#energyChart'),v.profile);}},120);});
-window.RoadUI={get s(){return state;},M,ico,btn,seg,pill,heading,stat,line,fmt,select,views,alerts,currentCase,render,dispatch};
+window.RoadUI={get s(){return state;},M,ico,btn,fmt,alerts,render,dispatch,platformLabel};
 })();

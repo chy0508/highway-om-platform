@@ -102,19 +102,22 @@ function tag(parent,text,aria,action) {
   return button;
 }
 
-async function sceneAssets() {
-  const loader=new GLTFLoader();
-  const input=fetch(assetRoot+'songlan-engineering.json').then(response=>{
-    if (!response.ok) throw new Error('未找到松岚场景设备与镜头');
-    return response.json();
-  });
-  return Promise.all([input,loader.loadAsync(assetRoot+'songlan-engineering.glb'),
-    loader.loadAsync(assetRoot+'songlan-valley.glb'),
-    new THREE.TextureLoader().loadAsync(assetRoot+'songlan-water-normal.png')]);
+async function fetchAsset(file, timeout) {
+  const response = await fetch(assetRoot+file, {signal: AbortSignal.timeout(timeout)});
+  if (!response.ok) throw new Error('场景资源加载失败：'+file);
+  return response;
 }
 
 export async function createSonglan(canvasHost,overlay,root) {
-  const [config,engineering,valley,flowMap]=await sceneAssets();
+  const loader = new GLTFLoader();
+  const loadModel = async (file, timeout) => {
+    const response = await fetchAsset(file, timeout);
+    return loader.parseAsync(await response.arrayBuffer(), assetRoot);
+  };
+  const [config, engineering] = await Promise.all([
+    fetchAsset('songlan-engineering.json', 12000).then(response=>response.json()),
+    loadModel('songlan-engineering.glb', 18000)
+  ]);
   const renderer=new THREE.WebGLRenderer({antialias:true,powerPreference:'high-performance'});
   renderer.setPixelRatio(Math.min(window.devicePixelRatio,1.6));
   renderer.toneMapping=THREE.ACESFilmicToneMapping;
@@ -136,20 +139,12 @@ export async function createSonglan(canvasHost,overlay,root) {
   controls.maxPolarAngle=Math.PI/2+.13;
   controls.minDistance=3;
   controls.maxDistance=790;
-  flowMap.wrapS=flowMap.wrapT=THREE.RepeatWrapping;
-  const water=riverMaterial(flowMap);
-  let waterMesh;
-  valley.scene.traverse(node=>{
-    if (!node.isMesh) return;
-    const materials=Array.isArray(node.material)?node.material:[node.material];
-    if (/songlanwater/i.test(node.name) || materials.some(material=>/songlanwater/i.test(material.name))) {
-      node.material=water;
-      waterMesh=node;
-    } else {
-      node.receiveShadow=true;
-    }
-  });
-  if (!waterMesh) throw new Error('松岚河面材质未找到');
+  let water;
+  const preview = new THREE.Mesh(new THREE.PlaneGeometry(1700,1700), new THREE.MeshStandardMaterial({color:0x63745f}));
+  preview.rotation.x = -Math.PI / 2;
+  preview.position.y = -2;
+  preview.receiveShadow = true;
+  scene.add(preview);
 
   const devices=new Map(config.devices.map(device=>[device.id,device]));
   const assetNodes=new Map();
@@ -163,7 +158,7 @@ export async function createSonglan(canvasHost,overlay,root) {
   for (const id of devices.keys()) {
     if (!assetNodes.has(id)) throw new Error('松岚设备缺少独立模型：'+id);
   }
-  scene.add(valley.scene,engineering.scene);
+  scene.add(engineering.scene);
   const selectedOutline=new THREE.Box3Helper(new THREE.Box3(),0x67e8cf);
   selectedOutline.visible=false;
   scene.add(selectedOutline);
@@ -226,11 +221,11 @@ export async function createSonglan(canvasHost,overlay,root) {
   function render(now) {
     pending=0;
     if (!visible) return;
-    water.uniforms.elapsed.value=reducedMotion.matches ? 0 : now/1000;
+    if (water) water.uniforms.elapsed.value=reducedMotion.matches ? 0 : now/1000;
     renderer.render(scene,camera);
     layoutLabels();
     lastFrame=now;
-    if (view==='overview' && !reducedMotion.matches && !document.hidden) {
+    if (water && view==='overview' && !reducedMotion.matches && !document.hidden) {
       pending=requestAnimationFrame(function animate(time) {
         if (!visible) {
           pending=0;
@@ -327,6 +322,51 @@ export async function createSonglan(canvasHost,overlay,root) {
   document.addEventListener('visibilitychange',redraw);
   reducedMotion.addEventListener('change',redraw);
 
+  const terrainStatus = document.createElement('div');
+  terrainStatus.className = 'terrain-status';
+  terrainStatus.setAttribute('role','status');
+  canvasHost.appendChild(terrainStatus);
+  async function loadTerrain() {
+    terrainStatus.textContent = '正在补载地形细节';
+    try {
+      const valley = await loadModel('songlan-valley.glb', 30000);
+      let waterMesh;
+      valley.scene.traverse(node=>{
+        if (!node.isMesh) return;
+        const materials=Array.isArray(node.material)?node.material:[node.material];
+        if (/songlanwater/i.test(node.name) || materials.some(material=>/songlanwater/i.test(material.name))) {
+          waterMesh=node;
+        } else node.receiveShadow=true;
+      });
+      scene.add(valley.scene);
+      scene.remove(preview);
+      preview.geometry.dispose();
+      preview.material.dispose();
+      renderer.shadowMap.needsUpdate=true;
+      terrainStatus.hidden=true;
+      root.dataset.terrainReady='true';
+      redraw();
+      if (waterMesh) {
+        const flowMap = await new THREE.TextureLoader().loadAsync(assetRoot+'songlan-water-normal.png');
+        flowMap.wrapS=flowMap.wrapT=THREE.RepeatWrapping;
+        water=riverMaterial(flowMap);
+        water.uniforms.lightTheme.value=lightTheme ? 1 : 0;
+        waterMesh.material=water;
+        redraw();
+      }
+    } catch (error) {
+      if (terrainStatus.hidden) return; // The terrain can render with its original water material.
+      terrainStatus.textContent = '地形细节暂未加载。';
+      const retry=document.createElement('button');
+      retry.className='scene-retry';
+      retry.textContent='重试';
+      retry.onclick=loadTerrain;
+      terrainStatus.append(' ',retry);
+      console.warn(error.message);
+    }
+  }
+  loadTerrain();
+
   return {
     show(state,handlers,startOverview) {
       callbacks=handlers;
@@ -339,7 +379,7 @@ export async function createSonglan(canvasHost,overlay,root) {
         lightTheme=light;
         renderer.toneMappingExposure=light ? 1.15 : 1.04;
         sunlight.intensity=light ? 2.5 : 2.3;
-        water.uniforms.lightTheme.value=light ? 1 : 0;
+        if (water) water.uniforms.lightTheme.value=light ? 1 : 0;
       }
       portalTag.classList.toggle('warning',!closed);
       portalTag.setAttribute('aria-label',closed?'松岚隧道 · 已核验':'地图告警 照明回路无反馈');

@@ -1,14 +1,14 @@
 
 .cockpit-host {
   --geo-ink:#e6f1f6;
-  --geo-muted:#a1bbc7;
-  --geo-head:rgba(8,25,37,.94);
-  --geo-glass:rgba(8,29,40,.74);
-  --geo-glass-strong:rgba(12,36,49,.94);
-  --geo-rule:rgba(167,212,232,.20);
-  --geo-hover:rgba(69,225,200,.13);
-  --geo-teal:#71e9d5;
-  --geo-teal-strong:#39d6bc;
+  --geo-muted:#a6bdde;
+  --geo-head:rgba(9,24,49,.94);
+  --geo-glass:rgba(10,31,61,.74);
+  --geo-glass-strong:rgba(15,38,74,.94);
+  --geo-rule:rgba(145,182,240,.20);
+  --geo-hover:rgba(81,149,255,.13);
+  --geo-teal:#8ebcff;
+  --geo-teal-strong:#4b96ff;
   --geo-orange:#ffc077;
   --geo-plan:#b9a2f0;
   --geo-blue:#72abef;
@@ -94,7 +94,7 @@ button.map-label:hover, .map-label.primary-mark {
 .map-label.route-callout em {font-style:normal;color:var(--geo-teal);}
 .map-label.mark-context {border:0;background:none;box-shadow:none;color:#b8cfd4;text-shadow:0 1px 3px #10242f;letter-spacing:.15em;opacity:.77;}
 .map-label.mark-context::after {display:none;}
-.scene-message {position:absolute;top:45%;left:50%;transform:translateX(-50%);padding:12px;color:#fff;background:#142b31;border-radius:6px;}
+.scene-message {position:absolute;top:45%;left:50%;transform:translateX(-50%);padding:12px;color:#fff;background:#102746;border-radius:6px;}
 .pilot-tag {
   display:flex;align-items:center;gap:6px;
   padding:4px 9px;box-shadow:0 2px 8px #061d276b;
@@ -320,7 +320,7 @@ button.map-label:hover, .map-label.primary-mark {
 .site-heading {padding-top:9px;padding-bottom:9px;}
 .site-heading h2 {font-size:var(--section-size);}
 .site-assets {padding:2px var(--panel-pad);}
-.site-assets > div {display:grid;grid-template-columns:1fr auto;min-height:37px;align-content:center;gap:4px 8px;border-bottom:1px solid var(--geo-rule);}
+.site-assets > button {display:grid;grid-template-columns:1fr auto;min-height:37px;align-content:center;gap:4px 8px;border-bottom:1px solid var(--geo-rule);}
 .site-assets span {display:flex;align-items:center;gap:7px;}
 .site-assets svg {color:var(--geo-teal);}
 .pilot-devices {
@@ -356,7 +356,7 @@ button.map-label:hover, .map-label.primary-mark {
   grid-column:1/-1;height:3px;border-radius:4px;
   background:linear-gradient(90deg,var(--geo-blue),var(--geo-teal-strong) var(--percent),var(--geo-rule) var(--percent));
 }
-.site-assets > div:last-child {border-bottom:0;}
+.site-assets > button:last-child {border-bottom:0;}
 .alert-info {display:grid;gap:4px;padding:8px var(--panel-pad) 10px;}
 .alert-info > strong {font-size:var(--section-size);}
 .alert-info > span {color:var(--geo-muted);}
@@ -384,7 +384,7 @@ button.map-label:hover, .map-label.primary-mark {
   color:#a2e6d3; background:#0d1f2c; border:1px solid #315355;border-radius:5px;padding:6px 10px;margin:12px 15px 0;text-align:left;
 }
 .return-network:hover {color:#fff;}
-.cockpit-host[data-shell="legacy"] {background:var(--paper);}
+
 .map-label[hidden] {display:none;}
 
 @media (min-width:801px) {
@@ -460,3 +460,10 @@ button.map-label:hover, .map-label.primary-mark {
   .chainage>div::before {top:9px;}
   .route-scroll {max-height:205px;}
 }
+
+.scene-message,.terrain-status {z-index:2;max-width:80%;text-align:center;}
+.terrain-status {position:absolute;left:50%;top:42%;transform:translateX(-50%);padding:6px 10px;border-radius:5px;background:#102746e8;color:#d9e7fa;font:12px/1.4 system-ui,sans-serif;}
+.scene-retry {border:1px solid #5898ef;border-radius:4px;padding:3px 8px;background:#214878;color:#fff;cursor:pointer;}
+
+.site-assets > button {width:100%;text-align:left;border:0;border-bottom:1px solid var(--geo-rule);background:transparent;color:inherit;font:inherit;cursor:pointer;}
+.site-assets > button:hover,.site-assets > button:focus-visible {background:var(--geo-hover);}

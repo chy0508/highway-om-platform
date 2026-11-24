@@ -563,7 +563,7 @@
     document.getElementById('app').innerHTML = `
       <aside id="sidebar">
         <div class="brand"><div class="brand-logo">
-          <div class="brand-mark"><svg viewBox="0 0 24 24" fill="#fff"><path d="M4 21L9 3h6l5 18h-3l-1.2-4H8.2L7 21H4zm5-7h6l-2.2-8h-1.6L9 14z"/></svg></div>
+          <img src="assets/platform-logo.svg" width="32" height="32" alt="" class="brand-mark">
           <div><div class="brand-name">机电智能运维平台</div><div class="brand-sub">高速公路 · 数字孪生</div></div>
         </div></div>
         <nav id="nav" class="dark-scroll"></nav>
