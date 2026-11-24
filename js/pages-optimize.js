@@ -167,7 +167,64 @@
   /* ================= 8.12 场景9｜照明调光优化 ================= */
   P.light = {
     title: '场景9 · 隧道照明调光优化', group: '运行优化', crumb: true,
+    renderEconomicCase(el, verification, params) {
+      // Standalone Yunling lighting fixture. The main tunnel's power chart uses relative units.
+      const sunny = params.weather !== 'cloud', busy = params.flow !== 'low';
+      const round1 = n => Math.round(n * 10) / 10;
+      const num = n => n.toLocaleString('zh-CN', {maximumFractionDigits: 2});
+      const capital = 32000, price = 0.85, days = 300;
+      const base = round1((busy ? 510 : 465) * (sunny ? 1 : .92));
+      const reference = sunny ? (busy ? 438 : 369) : (busy ? 361 : 300);
+      const floors = [sunny ? .78 : .58, busy ? .67 : .52, .48];
+      const requests = [(sunny ? .91 : .73) * (busy ? 1 : .88), (sunny ? .79 : .62) * (busy ? 1 : .9), busy ? .64 : .53];
+      const targets = requests.map((v,i) => Math.round(100 * Math.max(v, floors[i])));
+      const weights = [.45, .30, .25];
+      const predicted = round1(base * targets.reduce((total, t, i) => total + t / 100 * weights[i], 0));
+      const savings = use => {
+        const daily = round1(base - use);
+        const annualEnergy = daily * days, annualRevenue = annualEnergy * price;
+        return {daily, annualEnergy, annualRevenue, years:capital / annualRevenue};
+      };
+      const model = savings(predicted), meter = savings(reference);
+      const route = verification ? 'kpi' : 'light';
+      const jump = dest => U.go(dest, {case:'yunling', weather:el.querySelector('#yl-weather').value, flow:el.querySelector('#yl-flow').value});
+      const row = (label, m, v) => `<tr><th scope="row">${label}</th><td>${m}</td><td>${v}</td></tr>`;
+      el.innerHTML = U.pageHead(verification ? '照明成效核验 · 分区智能调光' : '照明策略测算 · 分区智能调光',
+        '云岭隧道 K12 · 路维智策独立模拟样例。按同一工况、照明范围和 24 小时统计周期核算。表计读数为模拟样本。',
+        `<button class="btn" onclick="UI.go('${route}')">${verification ? '返回成效评价' : '返回青岭照明策略'}</button>
+         <button class="btn primary" id="yl-switch">${verification ? '查看同方案策略测算' : '查看同方案表计核验'}</button>`, U.demoBadge('独立模拟案例')) +
+        `<div class="card mb"><div class="card-b filter-bar">
+          <label class="fld">天气 <select class="sel" id="yl-weather"><option value="sun" ${sunny ? 'selected' : ''}>晴天</option><option value="cloud" ${sunny ? '' : 'selected'}>阴天</option></select></label>
+          <label class="fld">车流 <select class="sel" id="yl-flow"><option value="high" ${busy ? 'selected' : ''}>峰时</option><option value="low" ${busy ? '' : 'selected'}>低流量</option></select></label>
+          <span class="small muted">洞外亮度 ${sunny ? '4,800' : '1,650'} cd/m² · 交通量 ${busy ? '980' : '280'} 辆/小时</span>
+        </div></div>
+        <div class="grid g-4 mb">${U.kpi('校正基线电量', num(base), '同工况 · 日电量', '#2f7bff', null, 'bulb', 'kWh')}
+          ${U.kpi(verification ? '模拟分项表计' : '模型预计用电', num(verification ? reference : predicted), '照明回路 · 日电量', '#00a5bf', null, 'bulb', 'kWh')}
+          ${U.kpi(verification ? '按表计折算年收益' : '模型预计年收益', num(verification ? meter.annualRevenue : model.annualRevenue), '年等效运行 ' + days + ' 天', '#15803d', null, 'cost', '元')}
+          ${U.kpi(verification ? '表计口径回收期' : '模型预计回收期', (verification ? meter.years : model.years).toFixed(2), '静态投资回收期', '#8054b2', null, 'cost', '年')}</div>
+        <div class="grid g-2"><section class="card"><div class="card-h"><span class="card-t">${verification ? '模型预计与表计核验' : '分区负荷与改造投资'}</span></div><div class="card-b">
+          ${verification ? `<table class="tbl"><thead><tr><th>核算项目</th><th>模型预计</th><th>模拟表计</th></tr></thead><tbody>
+          ${row('日用电量（kWh）', num(predicted), num(reference))}
+          ${row('日节电量（kWh）', num(model.daily), num(meter.daily))}
+          ${row('折算年节电量（kWh）', num(model.annualEnergy), num(meter.annualEnergy))}
+          ${row('折算年收益（元）', num(model.annualRevenue), num(meter.annualRevenue))}
+          ${row('静态回收期（年）', model.years.toFixed(2), meter.years.toFixed(2))}</tbody></table>`
+          : `<table class="tbl"><thead><tr><th>照明分区</th><th>用电权重</th><th>模拟负荷下限</th><th>策略负荷</th></tr></thead><tbody>
+          ${['入口段','过渡段','中间段'].map((name,i) => `<tr><th scope="row">${name}</th><td>${weights[i] * 100}%</td><td>${Math.round(floors[i]*100)}%</td><td>${targets[i]}%</td></tr>`).join('')}</tbody></table>
+          <p class="small muted mt">预计用电 = 校正基线 × 各分区加权负荷。示例下限用于模型演算，实际调光需复核亮度和均匀度，应急照明单独运行。</p>`}
+          <div class="note-box blue mt">改造投入 ${num(capital)} 元 · 电价 ${price} 元/kWh · 年等效运行 ${days} 天。全年收益按当前样本日折算。</div>
+        </div></section><section class="card"><div class="card-h"><span class="card-t">${verification ? '节电量与收益核算' : '节电收益测算'}</span></div><div class="card-b">
+          <div class="concl"><h4>${verification ? '模拟表计' : '策略模型'}每日节电 ${num(verification ? meter.daily : model.daily)} kWh</h4>
+          <p>工况校正基线 ${num(base)} − ${verification ? '模拟表计' : '模型预计'}用电 ${num(verification ? reference : predicted)} = ${num(verification ? meter.daily : model.daily)} kWh。</p></div>
+          <div class="kv mt"><span class="k">折算年收益</span><span class="v">${num(verification ? meter.daily : model.daily)} × ${days} × ${price} = <b>${num(verification ? meter.annualRevenue : model.annualRevenue)} 元</b></span>
+          <span class="k">静态回收期</span><span class="v">${num(capital)} ÷ ${num(verification ? meter.annualRevenue : model.annualRevenue)} ≈ <b>${(verification ? meter.years : model.years).toFixed(2)} 年</b></span></div>
+          <p class="small muted mt">${verification ? '多项措施同期实施时，若缺少各措施的独立分项表计，只列组合收益。' : '校正基线按晴天 / 阴天、峰时 / 低流量取同类工况。静态回收期只计节电收益。'}</p>
+        </div></section></div>`;
+      el.querySelector('#yl-switch').addEventListener('click', () => jump(verification ? 'light' : 'kpi'));
+      el.querySelectorAll('#yl-flow, #yl-weather').forEach(select => select.addEventListener('change', () => jump(route)));
+    },
     render(el, params) {
+      if (params?.case === 'yunling') return this.renderEconomicCase(el, false, params);
       const ZONES = [
         { id: '入口段1', w: 1.2, lamps: 24 }, { id: '入口段2', w: 1.0, lamps: 20 },
         { id: '过渡段1', w: 0.9, lamps: 18 }, { id: '过渡段2', w: 0.8, lamps: 16 },
@@ -189,6 +246,7 @@
       el.innerHTML = U.pageHead('场景9 · 青岭隧道照明调光优化',
         '按入口段/过渡段/中间段分区，结合洞外亮度与交通量评估调光策略。本页为模拟策略评估，遵循《公路隧道照明设计细则》，不提供“立即下发调光”等远程控制；方案仅可保存为本地。',
         `<button class="btn" onclick="UI.go('gis',{mode:'bim'})">${U.icon('cube', 14)} BIM定位</button>
+         <button class="btn" onclick="UI.go('light',{case:'yunling'})">照明改造投资测算</button>
          <button class="btn" id="lt-explain">${U.icon('diag', 14)} 策略说明</button>
          <button class="btn primary" id="lt-save">${U.icon('check', 14)} 保存方案</button>`, U.demoBadge('模拟策略评估')) +
         `<div class="card mb"><div class="card-b">
@@ -395,12 +453,14 @@
   P.tasks = {
     title: '场景10 · 现场作业统筹', group: '现场作业统筹', crumb: true,
     render(el, params) {
-      let selected = D.tasks.map(t => t.id);
+      const focusTask = D.tasks.find(t => t.id === params.id);
+      let selected = focusTask ? [focusTask.id] : D.tasks.map(t => t.id);
       let mode = 'A', resourceOn = true;
-      const baseMileage = +D.tasks.reduce((a, t) => a + 2 * t.km, 0).toFixed(1);
+      const selectedMileage = () => +D.tasks.filter(t => selected.includes(t.id)).reduce((sum, t) => sum + 2 * t.km, 0).toFixed(1);
       el.innerHTML = U.pageHead('场景10 · 机电运维现场作业统筹',
         '将检测周期、诊断异常建议与计划检查产生的现场任务，按地理、资质、仪器、作业窗口与交通管制约束组合为任务包。本页为模拟组合建议，供调度参考，不自动派单、不替代审批。',
-        `<button class="btn" id="tk-basis">${U.icon('diag', 14)} 查看组合依据</button>
+        `<button class="btn" onclick="UI.go('camera-renewal',{from:'tasks'})">同杆摄像机修换方案比选</button>
+         <button class="btn" id="tk-basis">${U.icon('diag', 14)} 查看组合依据</button>
          <button class="btn" id="tk-reset">${U.icon('reset', 14)} 重置选择</button>
          <button class="btn primary" id="tk-summary">${U.icon('copy', 14)} 生成统筹摘要</button>`, U.demoBadge('模拟组合建议')) +
         `<div class="card mb"><div class="card-b">
@@ -458,7 +518,8 @@
         el.querySelectorAll('[data-tk]').forEach(tr => tr.addEventListener('click', ev => { if (ev.target.closest('[data-sw]')) return; openReq(D.tasks.find(t => t.id === tr.dataset.tk)); }));
       }
       function openReq(t) {
-        U.openDrawer('作业要求 · ' + t.id, `
+        const review = t.review;
+        const body = U.openDrawer('作业要求 · ' + t.id, `
           <div class="flex ai-center mb"><b>${t.type}</b> ${U.demoBadge()}</div>
           <div class="kv">
             <span class="k">任务编号</span><span class="v mono">${t.id}</span>
@@ -475,7 +536,30 @@
           <div class="divider"></div>
           <button class="btn ${selected.includes(t.id) ? '' : 'primary'}" id="req-toggle">${selected.includes(t.id) ? '移出组合' : '纳入组合'}</button>
           <button class="btn" onclick="UI.go('gis',{focus:'${t.asset}'})">${U.icon('map', 13)} 孪生定位</button>
-          ${t.source.startsWith('诊断') ? `<button class="btn" onclick="UI.go('${t.asset === 'L-CIR-03' ? 'scene-lighting' : t.asset === 'SW-12' ? 'scene-camera' : t.asset === 'BAT-01' ? 'ups' : 'diagnosis'}')">${U.icon('diag', 13)} 关联诊断</button>` : ''}`);
+          ${t.eventId ? `<button class="btn" onclick="UI.openEvent('${t.eventId}')">${U.icon('diag', 13)} 关联诊断</button>
+            <div class="sec-t">现场核验</div>
+            ${review ? `<div class="note-box"><b>${review.outcome === 'verified' ? '已核验恢复' : '待复核'}</b>
+              <p>${U.esc(review.note)}</p><small>${D.fmtTime(new Date(review.time), 'full')}</small></div>` : ''}
+            ${t.id === 'FT-03' ? `<button class="btn primary mt" onclick="UI.go('scene-camera',{review:'1'})">登记恢复核验</button>` : review?.outcome === 'verified' ? '' : `<form class="task-review mt">
+              <label>核验结论<select class="sel" name="outcome" required><option value="">请选择</option><option value="unresolved">仍有异常，待复核</option><option value="verified">已核验恢复</option></select></label>
+              <label>现场记录<textarea class="inp" name="note" rows="3" maxlength="500" required></textarea></label>
+              <button type="submit" class="btn primary">保存核验结果</button>
+            </form>`}` : ''}`);
+        body.querySelector('.task-review')?.addEventListener('submit', ev => {
+          ev.preventDefault();
+          const form = ev.currentTarget;
+          try {
+            if (!D.saveTaskReview(t, form.elements.outcome.value, form.elements.note.value)) {
+              U.toast('请填写核验结论和现场记录', 'warn');
+              return;
+            }
+          } catch {
+            U.toast('浏览器未能保存现场记录，请重试', 'warn');
+            return;
+          }
+          openReq(t);
+          U.toast('已保存核验结果', 'ok');
+        });
         const b = document.getElementById('req-toggle');
         b && b.addEventListener('click', () => { toggle(t.id); U.closeDrawer(); });
       }
@@ -504,6 +588,7 @@
         return r;
       }
       function drawCompare() {
+        const baseMileage = selectedMileage();
         const A = buildPackages(selected, 'A', resourceOn), B = buildPackages(selected, 'B', resourceOn);
         const saveM = baseMileage ? +((baseMileage - A.mileage) / baseMileage * 100).toFixed(1) : 0;
         el.querySelector('#tk-compare').innerHTML = `
@@ -528,6 +613,7 @@
       el.querySelector('#tk-cons').innerHTML = `<div class="grid g-3">${CONS.map(([t, x]) => `<div class="evi"><div class="evi-t small">${U.icon('check', 13)} ${t}</div><div class="evi-d small">${x}</div></div>`).join('')}</div>`;
       function drawAll() { drawMap(); drawSource(); drawList(); drawPackages(); drawCompare(); }
       drawAll();
+      if (focusTask) openReq(focusTask);
       segBind(el, '#tk-mode', v => { mode = v; drawPackages(); drawCompare(); });
       el.querySelector('#tk-res').addEventListener('click', function () { this.classList.toggle('on'); resourceOn = this.classList.contains('on'); drawPackages(); });
       el.querySelector('#tk-reset').addEventListener('click', () => { selected = D.tasks.map(t => t.id); el.querySelector('#tk-sel-cnt').textContent = selected.length; drawAll(); U.toast('已重置为全部任务', 'ok'); });
@@ -544,6 +630,7 @@
           `<button class="btn" onclick="UI.closeModal()">关闭</button>`);
       });
       el.querySelector('#tk-summary').addEventListener('click', () => {
+        const baseMileage = selectedMileage();
         const A = buildPackages(selected, 'A', resourceOn), B = buildPackages(selected, 'B', resourceOn);
         const r = mode === 'A' ? A : B;
         summaryModal('现场作业统筹 · 组合摘要', `【范围】已选 ${r.count} 项现场任务（来源：检测周期/诊断异常建议/计划检查）

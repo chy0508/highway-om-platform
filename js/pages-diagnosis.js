@@ -282,8 +282,8 @@
     render(el, params) {
       const evs = D.events;
       const cnt = st => evs.filter(e => e.status === st).length;
-      const major = evs.filter(e => e.level === '严重' && !e.status.includes('已恢复') && !e.status.includes('已确认')).length;
-      const state = { cat: 'all', type: 'all', level: params.level || 'all', status: 'all', range: 'all', q: '' };
+      const major = evs.filter(D.isOpenMajor).length;
+      const state = { cat: 'all', type: 'all', level: params.level || 'all', status: params.status === 'open' ? 'open' : 'all', range: 'all', q: '' };
       el.innerHTML = U.pageHead('智能诊断中心 · 异常事件总览',
         '集中呈现设备异常、告警聚集与智能分析结果。系统输出故障源候选与检查优先级，诊断状态含“现场待确认”，不自动派发工单、不替代现场确认。',
         `<button class="btn" onclick="UI.go('scene-camera')">${U.icon('cam', 14)} 摄像机离线场景</button>
@@ -297,7 +297,7 @@
                 <label class="fld">专业 <select class="sel" id="dg-cat"><option value="all">全部</option>${Object.keys(D.CATS).map(c => `<option value="${c}">${D.CATS[c].name}</option>`).join('')}</select></label>
                 <label class="fld">类型 <select class="sel" id="dg-type"><option value="all">全部</option>${[...new Set(evs.map(e => e.type))].map(t => `<option>${t}</option>`).join('')}</select></label>
                 <label class="fld">等级 <select class="sel" id="dg-level"><option value="all">全部</option><option>严重</option><option>重要</option><option>一般</option><option>提示</option></select></label>
-                <label class="fld">诊断状态 <select class="sel" id="dg-status"><option value="all">全部</option>${[...new Set(evs.map(e => e.status))].map(s => `<option>${s}</option>`).join('')}</select></label>
+                <label class="fld">诊断状态 <select class="sel" id="dg-status"><option value="all">全部</option><option value="open">未解除</option>${[...new Set(evs.map(e => e.status))].map(s => `<option>${s}</option>`).join('')}</select></label>
                 <label class="fld">时间 <select class="sel" id="dg-range"><option value="all">全部</option><option value="24">近24小时</option><option value="168">近7天</option><option value="720">近30天</option></select></label>
                 <button class="btn sm" id="dg-clear">${U.icon('reset', 13)} 清空</button>
               </div>
@@ -319,26 +319,26 @@
         </div>`;
       el.querySelector('#diag-kpis').innerHTML =
         U.kpi('诊断事件', evs.length, '近30天累计', '#2f7bff', null, 'diag', '起') +
-        U.kpi('未解除重大', major, '摄像机离线 / 照明异常', '#ef4444', "UI.go('diagnosis',{level:'严重'})", 'warn', '起') +
+        U.kpi('未解除重大', major, '含等待业务复核的严重事件', '#ef4444', "UI.go('diagnosis',{level:'严重',status:'open'})", 'warn', '起') +
         U.kpi('已生成候选', cnt('已生成候选原因'), '含故障源候选与评分', '#00b8d9', null, 'check', '起') +
         U.kpi('现场待确认', cnt('现场待确认'), '需现场核查后确认', '#f59e0b', null, 'eye', '起') +
         U.kpi('分析中', cnt('分析中'), '关联分析进行中', '#8b5cf6', null, 'opt', '起') +
         U.kpi('已确认/恢复', evs.filter(e => e.status.includes('已恢复') || e.status.includes('已确认')).length, '确认记录', '#16a34a', null, 'check', '起');
       // 侧栏
-      const hi = evs.filter(e => e.level === '严重' || e.level === '重要').slice(0, 3);
+      const hi = evs.filter(e => !e.status.includes('已恢复') && (e.level === '严重' || e.level === '重要')).slice(0, 3);
       el.querySelector('#diag-side').innerHTML = hi.map(e => `
         <div style="border:1px solid var(--line-dark);border-radius:7px;padding:10px 12px;margin-bottom:9px;background:rgba(22,64,122,.22)">
           <div class="flex ai-center" style="gap:6px">${U.levelTag(e.level)}<span class="small" style="color:#7e95b8">${D.fmtTime(e.time)}</span></div>
           <div style="color:#eaf2fc;font-size:12.5px;font-weight:600;margin:5px 0">${e.name}</div>
-          <div style="color:#9fb4d0;font-size:11px;line-height:1.6">${e.summary}</div>
+          <div style="color:#9fb4d0;font-size:11px;line-height:1.6">${e.recoverySummary || e.summary}</div>
           <div style="color:#7ee7fa;font-size:11px;margin-top:6px">${e.candidate}</div>
           ${e.score ? `<div class="score-bar" style="background:#1c3a63"><i style="width:${e.score}%"></i></div><div class="small" style="color:#6d84a6;margin-top:3px">关联评分 ${e.score}</div>` : ''}
-          <button class="hud-btn" style="margin-top:8px" onclick="UI.go('${e.page}',{id:'${e.id}'})">进入诊断分析 ›</button>
+          <button class="hud-btn" style="margin-top:8px" onclick="UI.openEvent('${e.id}')">进入诊断分析 ›</button>
         </div>`).join('');
       // 状态分布
       const stCount = {};
       evs.forEach(e => stCount[e.status] = (stCount[e.status] || 0) + 1);
-      const stColors = { '已生成候选原因': '#00b8d9', '现场待确认': '#f59e0b', '分析中': '#8b5cf6', '已恢复': '#16a34a', '已确认/已恢复': '#16a34a' };
+      const stColors = { '已生成候选原因': '#00b8d9', '现场待确认': '#f59e0b', '待复核': '#eab308', '分析中': '#8b5cf6', '已恢复': '#16a34a', '已确认/已恢复': '#16a34a' };
       Charts.donut(el.querySelector('#diag-status-chart'), {
         size: 150, thick: .62, center: evs.length, centerSub: '事件',
         items: Object.keys(stCount).map(s => ({ name: s, value: stCount[s], color: stColors[s] || '#94a3b8' })),
@@ -349,7 +349,7 @@
           if (state.cat !== 'all' && e.cat !== state.cat) return false;
           if (state.type !== 'all' && e.type !== state.type) return false;
           if (state.level !== 'all' && e.level !== state.level) return false;
-          if (state.status !== 'all' && e.status !== state.status) return false;
+          if (state.status === 'open' ? e.status.includes('已恢复') : state.status !== 'all' && e.status !== state.status) return false;
           if (state.range !== 'all' && (D.NOW - e.time) / 3600000 > +state.range) return false;
           if (state.q) { const q = state.q.toLowerCase(); if (!(e.id.toLowerCase().includes(q) || e.name.toLowerCase().includes(q) || e.place.toLowerCase().includes(q))) return false; }
           return true;
@@ -368,10 +368,10 @@
             { key: 'place', title: '位置', render: e => `<span class="small">${e.place}</span>` },
             { key: 'affected', title: '影响设备', sortable: true, sortVal: e => e.affected.length, cls: 'num', render: e => `<a class="tag ${e.affected.length > 4 ? 'err' : 'info'}" onclick="event.stopPropagation();UI.diagnosisAffected('${e.id}')">${e.affected.length} 台</a>` },
             { key: 'duration', title: '持续', render: e => `<span class="small muted">${e.duration}</span>` },
-            { key: 'status', title: '诊断状态', render: e => `<span class="tag ${e.status.includes('候选') ? 'cyan' : e.status.includes('待确认') ? 'warn' : e.status.includes('恢复') || e.status.includes('确认') ? 'ok' : 'violet'}">${e.status}</span>` },
-            { key: 'op', title: '操作', render: e => `<a onclick="event.stopPropagation();UI.go('${e.page}',{id:'${e.id}'})">诊断 ›</a> <a title="查看拓扑" onclick="event.stopPropagation();UI.go('topology',{focus:'${e.affected[0]}'})">${U.icon('topo', 14)}</a>` }
+            { key: 'status', title: '诊断状态', render: e => `<span class="tag ${e.status.includes('候选') ? 'cyan' : e.status.includes('待') ? 'warn' : e.status.includes('恢复') || e.status.includes('确认') ? 'ok' : 'violet'}">${e.status}</span>` },
+            { key: 'op', title: '操作', render: e => `<a onclick="event.stopPropagation();UI.openEvent('${e.id}')">诊断 ›</a> <a title="查看拓扑" onclick="event.stopPropagation();UI.go('topology',{focus:'${e.affected[0]}'})">${U.icon('topo', 14)}</a>` }
           ],
-          onRow: e => U.go(e.page, { id: e.id }),
+          onRow: e => U.openEvent(e.id),
           rowClass: e => e.level === '严重' && !e.status.includes('恢复') ? 'hl' : ''
         });
       }
@@ -379,27 +379,97 @@
         const e = evs.find(x => x.id === id);
         U.openDrawer('受影响设备清单 · ' + e.id, `
           <div class="flex ai-center mb">${U.levelTag(e.level)} <b>${e.name}</b> ${U.demoBadge()}</div>
-          <div class="note-box blue mb">共 ${e.affected.length} 台设备受影响。点击设备打开档案抽屉。影响范围由告警聚集与拓扑关系推导。</div>
+          <div class="note-box blue mb">事件发生时涉及 ${e.affected.length} 台设备。点击查看设备档案。${e.recoverySummary || ''}</div>
           ${e.affected.map(c => { const d = D.byCode[c]; return `<div class="evi" style="cursor:pointer" onclick="UI.openDevice('${c}')"><div class="evi-t">${U.statusTag(d.status)} <span class="mono">${c}</span></div><div class="evi-d">${d.name} · ${d.kmText} ${d.place}</div></div>`; }).join('')}
           ${e.related.length ? `<div class="sec-t">关联分析对象（${e.related.length}）</div>${e.related.map(c => { const d = D.byCode[c]; return `<div class="evi" style="cursor:pointer;padding:7px 12px" onclick="UI.openDevice('${c}')"><div class="evi-t small"><span class="mono">${c}</span> ${U.statusTag(d.status)}</div><div class="src">${d.name}</div></div>`; }).join('')}` : ''}
-          <button class="btn primary mt" onclick="UI.go('${e.page}',{id:'${e.id}'})">进入诊断分析 ›</button>`, true);
+          <button class="btn primary mt" onclick="UI.openEvent('${e.id}')">进入诊断分析 ›</button>`, true);
       };
-      function sync() { el.querySelector('#dg-level').value = state.level; }
+      function sync() {
+        for (const key of ['cat','type','level','status','range']) el.querySelector('#dg-' + key).value = state[key];
+      }
       sync(); drawTable();
       let qt;
       el.querySelector('#dg-q').addEventListener('input', ev => { clearTimeout(qt); qt = setTimeout(() => { state.q = ev.target.value.trim(); drawTable(); }, 200); });
       [['#dg-cat', 'cat'], ['#dg-type', 'type'], ['#dg-level', 'level'], ['#dg-status', 'status'], ['#dg-range', 'range']].forEach(([s, k]) => el.querySelector(s).addEventListener('change', ev => { state[k] = ev.target.value; drawTable(); }));
       el.querySelector('#dg-clear').addEventListener('click', () => { Object.assign(state, { cat: 'all', type: 'all', level: 'all', status: 'all', range: 'all', q: '' }); el.querySelector('#dg-q').value = ''; sync(); drawTable(); });
-      if (params.id) { const e = evs.find(x => x.id === params.id); if (e) setTimeout(() => U.toast('已定位事件 ' + e.id + '，点击行进入专属诊断', 'ok'), 200); }
+      if (params.id) U.openEvent(params.id);
     }
   };
 
   /* ================= 8.8 场景5｜摄像机集体离线 ================= */
+  function cameraReviewPanel(box, event, open) {
+    const task = D.tasks.find(t => t.eventId === event.id);
+    const review = task.review;
+    const verified = review?.outcome === 'verified';
+    const history = Array.isArray(review?.history) ? review.history : [];
+    function receipt(record) {
+      const time = new Date(record.time);
+      return `<div class="evi"><div class="evi-t"><span class="tag ${record.outcome === 'verified' ? 'ok' : 'warn'}">${record.outcome === 'verified' ? '已恢复 · 已销项' : '待复核'}</span>
+        ${Number.isNaN(+time) ? '' : '<small class="muted">登记于 ' + D.fmtTime(time, 'full') + '</small>'}</div>
+        <div class="evi-d">${D.describeCameraChecks(record.checks)}</div>
+        ${record.note ? '<div class="src">现场记录　' + U.esc(record.note) + '</div>' : ''}</div>`;
+    }
+    box.innerHTML = `<div class="card-h"><span class="card-t">业务恢复核验</span><span class="sub">路维智策 · CAM-01 至 CAM-04</span><span class="spacer"></span>
+      <button class="btn sm" onclick="UI.go('tasks',{id:'${task.id}'})">现场任务 ${task.id}</button></div>
+      <div class="card-b">
+        ${review ? receipt(review) : '<p class="small muted">逐路核对网络心跳和实时画面，抽查四路录像回放，完成稳定观察后销项。</p>'}
+        ${history.length ? `<details class="mb"><summary>此前核验记录（${history.length}）</summary>${history.slice().reverse().map(receipt).join('')}</details>` : ''}
+        ${verified ? '' : `<details id="sc-review-form" ${open ? 'open' : ''}><summary style="color:var(--blue);cursor:pointer;font-weight:600">${review ? '继续复核' : '登记恢复核验'}</summary>
+          <form class="mt">
+            <div class="flex wrap mb">
+              <button type="button" class="btn sm" data-sample="frozen">填入返网后冻结样例</button>
+              <button type="button" class="btn sm" data-sample="live">填入四路恢复样例</button>
+            </div>
+            <div class="filter-bar">${event.affected.map(code => `<label class="fld">${code} 实时画面
+              <select class="sel" name="${code}" required><option value="">请选择</option><option value="offline">设备离线</option><option value="frozen">已在线，画面冻结</option><option value="live">已在线，画面连续</option></select></label>`).join('')}</div>
+            <div class="flex wrap mt">
+              <label class="check"><input type="checkbox" name="playback"> 四路录像均可回放</label>
+              <label class="check"><input type="checkbox" name="stable"> 稳定观察期内画面连续</label>
+              <label class="check"><input type="checkbox" name="link"> 上联端口及光功率复测正常</label>
+            </div>
+            <label class="fld mt" style="display:block">现场备注（选填）<textarea class="inp" name="note" rows="2" maxlength="500" style="display:block;width:100%"></textarea></label>
+            <div class="flex ai-center wrap mt"><button class="btn primary" type="submit">保存核验结果</button><small class="muted">模拟核验记录保存在当前浏览器。</small></div>
+          </form></details>`}
+      </div>`;
+    const form = box.querySelector('form');
+    if (!form) return;
+    const fields = form.elements;
+    if (review?.checks) {
+      event.affected.forEach(c => { fields[c].value = review.checks.streams?.[c] || ''; });
+      ['playback', 'stable', 'link'].forEach(key => { fields[key].checked = review.checks[key] === true; });
+    }
+    form.querySelectorAll('[data-sample]').forEach(button => button.onclick = () => {
+      const healthy = button.dataset.sample === 'live';
+      event.affected.forEach((c, i) => { fields[c].value = healthy || i > 0 ? 'live' : 'frozen'; });
+      fields.playback.checked = healthy;
+      fields.stable.checked = healthy;
+      fields.link.checked = true;
+    });
+    form.onsubmit = ev => {
+      ev.preventDefault();
+      const streams = Object.fromEntries(event.affected.map(c => [c, fields[c].value]));
+      const checks = { streams, playback: fields.playback.checked, stable: fields.stable.checked, link: fields.link.checked };
+      try {
+        if (!D.saveCameraReview(checks, fields.note.value)) {
+          U.render();
+          U.toast('请核对最新现场记录', 'warn');
+          return;
+        }
+      } catch {
+        U.toast('浏览器未能保存本次记录，请重试', 'warn');
+        return;
+      }
+      U.render();
+      U.toast(event.status === '已恢复' ? '四路业务核验通过，事件已销项' : '已保存，事件保留待复核', 'ok');
+    };
+    if (open) box.scrollIntoView({ block: 'start' });
+  }
   P['scene-camera'] = {
     title: '场景5 · 摄像机集体离线关联诊断', group: '智能诊断', crumb: true,
     render(el, params) {
       const e = D.events.find(x => x.id === 'EV-1123-01');
-      const cams = ['CAM-01', 'CAM-02', 'CAM-03', 'CAM-04'];
+      const cams = e.affected;
+      const offlineCount = cams.filter(code => D.byCode[code].status === 'offline').length;
       const model = topoModel();
       let confirmed = null;
       const candidates = [
@@ -419,24 +489,25 @@
             <div class="flex ai-center wrap" style="gap:8px;margin-bottom:10px">
               ${U.levelTag(e.level)} <span class="mono" style="color:#7ee7fa">${e.id}</span>
               <span style="color:#eaf2fc;font-weight:600">${e.name}</span>
-              <span class="tag warn" id="sc-status">${e.status}</span>
+              <span class="tag ${e.status === '已恢复' ? 'ok' : 'warn'}" id="sc-status">${e.status}</span>
               <span class="spacer" style="flex:1"></span>
               <span class="small" style="color:#7e95b8">发生 ${D.fmtTime(e.time)} · 位置 ${e.place}</span>
             </div>
             <div class="grid g-6" style="gap:9px">
-              <div class="dp-kpi"><div class="l">离线摄像机</div><div class="v rd">4<small> 台</small></div></div>
+              <div class="dp-kpi"><div class="l">当前离线摄像机</div><div class="v ${offlineCount ? 'rd' : 'cy'}">${offlineCount}<small> 台</small></div></div>
               <div class="dp-kpi"><div class="l">共用接入交换机</div><div class="v cy" style="font-size:16px">SW-12</div></div>
               <div class="dp-kpi"><div class="l">上联光链路</div><div class="v am" style="font-size:16px">FIBER-07</div></div>
               <div class="dp-kpi"><div class="l">离线时间窗</div><div class="v">78<small> 秒</small></div></div>
               <div class="dp-kpi"><div class="l">关联评分</div><div class="v cy">86<small> /100</small></div></div>
-              <div class="dp-kpi"><div class="l">持续时长</div><div class="v am">48<small> 分钟</small></div></div>
+              <div class="dp-kpi"><div class="l">首次诊断时已持续</div><div class="v am">48<small> 分钟</small></div></div>
             </div>
           </div>
         </div>
+        <div class="card mb" id="sc-review"></div>
         <div class="flex">
           <div style="width:250px;flex:0 0 250px">
             <div class="card">
-              <div class="card-h"><span class="card-t">异常摄像机清单</span><span class="spacer"></span>${U.demoBadge()}</div>
+              <div class="card-h"><span class="card-t">涉事摄像机清单</span><span class="spacer"></span>${U.demoBadge()}</div>
               <div class="card-b tight" id="sc-cams"></div>
             </div>
             <div class="card mt">
@@ -477,6 +548,7 @@
           <div class="card-h"><span class="card-t">诊断过程时间线</span><span class="sub">问题出现 → 数据汇聚 → 智能分析 → 结果输出</span><span class="spacer"></span>${U.demoBadge()}</div>
           <div class="card-b"><div class="timeline" id="sc-flow"></div></div>
         </div>`;
+      cameraReviewPanel(el.querySelector('#sc-review'), e, params.review === '1');
       // 摄像机清单
       el.querySelector('#sc-cams').innerHTML = cams.map(c => {
         const d = D.byCode[c];
@@ -490,11 +562,11 @@
       el.querySelector('#sc-spatial').innerHTML = `<div class="small muted mb">青岭隧道北洞 K18+420 — K18+600</div>
         <div style="position:relative;height:64px;background:linear-gradient(90deg,#0e2a4d,#16407a);border-radius:7px;border:1px solid var(--line-dark)">
           <div style="position:absolute;left:8px;right:8px;top:30px;height:4px;background:#2c4a75;border-radius:2px"></div>
-          ${cams.map((c, i) => `<div title="${c}" data-cam="${c}" style="position:absolute;left:${18 + i * 22}%;top:22px;width:18px;height:18px;border-radius:50%;background:#94a3b8;border:2px solid #ef4444;cursor:pointer;transform:translateX(-50%)"></div>`).join('')}
+          ${cams.map((c, i) => `<div title="${c} · ${D.STATUS[D.byCode[c].status].name}" data-cam="${c}" style="position:absolute;left:${18 + i * 22}%;top:22px;width:18px;height:18px;border-radius:50%;background:${ST_COLOR[D.byCode[c].status]};border:2px solid #dce8f5;cursor:pointer;transform:translateX(-50%)"></div>`).join('')}
           <div style="position:absolute;left:8px;bottom:4px;font-size:9px;color:#7e95b8">K18+420</div>
           <div style="position:absolute;right:8px;bottom:4px;font-size:9px;color:#7e95b8">K18+600</div>
         </div>
-        <div class="small muted mt">红圈=离线摄像机 · 点击定位拓扑节点</div>`;
+        <div class="small muted mt">灰色离线 · 橙色异常 · 绿色在线</div>`;
       // 结论面板
       function drawConcl() {
         el.querySelector('#sc-concl').innerHTML = `
@@ -518,12 +590,13 @@
             <span class="ref-chip" onclick="UI.openDevice('SW-12')">② SW-12 上联光口/光模块</span>
             <span class="ref-chip" onclick="UI.openDevice('OTN-02')">③ OTN-02 管理站侧收光</span>
           </div>
-          <div class="sec-t">可能受影响范围</div>
-          <p class="small" style="color:var(--text-2);line-height:1.7">青岭隧道北洞 4 台摄像机视频中断；经 SW-12 上联的 COVI-01 环境数据、LC-01 控制通信存在潜在影响（当前正常）。管理站侧 OTN-02 收光正常，骨干环网未受影响。</p>
+          <div class="sec-t">故障发生时的影响</div>
+          <p class="small" style="color:var(--text-2);line-height:1.7">青岭隧道北洞 4 台摄像机视频中断。同期 COVI-01 环境数据、LC-01 控制通信及管理站侧骨干环网正常。</p>
           <div class="note-box mt">边界说明：以上为拓扑+时序关联推导的候选原因，需现场核查光链路后确认。系统不直接判定“已确认交换机故障”。</div>
           <div class="divider"></div>
           <div class="flex wrap">
             <button class="btn sm" onclick="UI.go('topology',{focus:'SW-12'})">${U.icon('topo', 13)} 完整拓扑</button>
+            <button class="btn sm" onclick="UI.go('tasks',{id:'FT-03'})">关联现场任务 FT-03</button>
             <button class="btn sm" id="sc-confirm">${U.icon('check', 13)} 模拟现场确认</button>
           </div>`;
         el.querySelector('#sc-confirm').addEventListener('click', () => {
@@ -536,10 +609,9 @@
             const ok = document.getElementById('cf-ok');
             ok && ok.addEventListener('click', () => {
               const sel = document.querySelector('input[name=cf]:checked');
-              confirmed = sel ? sel.value : candidates[0].name;
+              if (!sel) { U.toast('请选择现场核实的故障源', 'warn'); return; }
+              confirmed = sel.value;
               U.closeModal(); drawConcl();
-              el.querySelector('#sc-status').textContent = '已确认';
-              el.querySelector('#sc-status').className = 'tag ok';
               U.toast('已记录现场确认结果：' + confirmed, 'ok');
             });
           }, 50);
@@ -551,7 +623,7 @@
       function drawCenter(tab) {
         const box = el.querySelector('#sc-center');
         if (tab === 'topo') {
-          box.innerHTML = '<div id="sc-topo"></div><div class="note-box gray mt">拓扑高亮显示摄像机离线关联链路。红色=中断链路，琥珀色=异常。点击节点查看上下游，点击异常链路可跳转诊断。</div>';
+          box.innerHTML = '<div id="sc-topo"></div><div class="note-box gray mt">拓扑显示当前链路状态。红色表示链路中断，琥珀色表示异常。点击节点查看上下游。</div>';
           topoApi = mountTopo(box.querySelector('#sc-topo'), model, {
             height: 470, focus: 'SW-12',
             onNode: code => { topoApi.setFocus(code); U.openDrawer('节点详情 · ' + code, nodeDetail(code, model, topoApi), true); bindImpact(); },
@@ -629,7 +701,8 @@
   4. CAB-03 供电/PoE 正常，未发现同步供电异常。
 【可能原因排序】FIBER-07光链路(86) > SW-12光口/光模块(72) > SW-12整机(41) > CAB-03供电(18)
 【建议优先检查】① FIBER-07 光功率/OTDR测试 ② SW-12 上联光口与光模块 ③ OTN-02 管理站侧收光
-【影响范围】青岭北洞4台摄像机视频中断；COVI-01/LC-01 通信潜在影响（当前正常）。
+【故障发生时的影响】青岭北洞4台摄像机视频中断，COVI-01/LC-01 通信同期正常。
+【业务恢复核验】${e.status}　${e.recoverySummary || '等待现场核验'}（现场任务 FT-03）
 【边界说明】本结论为模拟诊断结果，需现场核查确认；供电状态当前未发现同步异常（模拟数据）。`);
       });
     }
@@ -641,24 +714,26 @@
     render(el, params) {
       const e = D.events.find(x => x.id === 'EV-1123-02');
       const model = topoModel();
+      const fieldTask = D.tasks.find(t => t.eventId === e.id);
       const zones = ['Z-01', 'Z-02', 'Z-03', 'Z-04', 'Z-05', 'Z-06'];
       let selZone = 'Z-03', evTab = 'power';
       el.innerHTML = U.pageHead('场景6 · 青岭隧道 Z-03 照明分区异常',
         '青岭隧道北向 Z-03 分区 18 盏灯具同时失去反馈。系统沿供电回路、控制指令与灯具反馈逐层缩小故障范围，输出可能故障层级与优先检查对象。',
         `<button class="btn" onclick="UI.go('diagnosis')">${U.icon('back', 14)} 返回诊断中心</button>
-         <button class="btn" onclick="UI.go('gis',{mode:'bim'})">${U.icon('cube', 14)} BIM剖视定位</button>
+         <button class="btn" onclick="UI.go('gis',{mode:'tunnel',scene:'QL',focus:'Z-03'})">${U.icon('cube', 14)} 定位 Z-03 分区</button>
          <button class="btn" id="sl-check">${U.icon('check', 14)} 建议检查顺序</button>
          <button class="btn primary" id="sl-summary">${U.icon('copy', 14)} 生成诊断摘要</button>`, U.demoBadge('模拟诊断结果')) +
         `<div class="card dark-panel mb"><div class="card-b">
           <div class="flex ai-center wrap" style="gap:8px;margin-bottom:10px">
             ${U.levelTag(e.level)} <span class="mono" style="color:#7ee7fa">${e.id}</span>
-            <span style="color:#eaf2fc;font-weight:600">${e.name}</span><span class="tag warn">${e.status}</span>
+            <span style="color:#eaf2fc;font-weight:600">${e.name}</span><span class="tag ${e.status === '已恢复' ? 'ok' : 'warn'}">${e.status}</span>
             <span class="spacer" style="flex:1"></span><span class="small" style="color:#7e95b8">发生 ${D.fmtTime(e.time)} · ${e.place}</span>
           </div>
+          ${fieldTask.review ? `<div class="mb"><b>现场核验 · ${e.status}</b>　${U.esc(fieldTask.review.note)}</div>` : ''}
           <div class="grid g-6" style="gap:9px">
-            <div class="dp-kpi"><div class="l">异常分区</div><div class="v rd" style="font-size:18px">Z-03</div></div>
+            <div class="dp-kpi"><div class="l">事发分区</div><div class="v rd" style="font-size:18px">Z-03</div></div>
             <div class="dp-kpi"><div class="l">涉及灯具</div><div class="v am">18<small> 盏</small></div></div>
-            <div class="dp-kpi"><div class="l">回路电流</div><div class="v rd">0.4<small> A</small></div></div>
+            <div class="dp-kpi"><div class="l">事发时回路电流</div><div class="v rd">0.4<small> A</small></div></div>
             <div class="dp-kpi"><div class="l">正常电流</div><div class="v">16.2<small> A</small></div></div>
             <div class="dp-kpi"><div class="l">关联评分</div><div class="v cy">82<small> /100</small></div></div>
             <div class="dp-kpi"><div class="l">持续时长</div><div class="v am">2<small> 时15分</small></div></div>
@@ -831,7 +906,7 @@
             <div class="tl-item amber"><div class="tl-time">第3层</div><div class="tl-text"><b>PDB-02 配电柜</b>：核查 Z-03 馈线输出、母排电压、保护动作记录。</div></div>
             <div class="tl-item amber"><div class="tl-time">第4层 · 次优</div><div class="tl-text"><b>LC-01 控制器</b>：核对指令输出与反馈采集回路，排除控制器本体/采样故障。</div></div>
             <div class="tl-item green"><div class="tl-time">第5层 · 验证</div><div class="tl-text"><b>灯具分组</b>：恢复供电后逐组验证灯具回馈与照度，确认无单灯级遗留故障。</div></div>
-          </div>`, `<button class="btn" onclick="UI.closeModal()">关闭</button><button class="btn primary" onclick="UI.go('tasks');UI.closeModal()">${U.icon('task', 14)} 关联现场任务 FT-02</button>`);
+          </div>`, `<button class="btn" onclick="UI.closeModal()">关闭</button><button class="btn primary" onclick="UI.closeModal();UI.go('tasks',{id:'FT-02'})">${U.icon('task', 14)} 关联现场任务 FT-02</button>`);
       }
       el.querySelector('#sl-check').addEventListener('click', checkOrder);
       setTimeout(() => { const b = el.querySelector('#sl-check2'); b && b.addEventListener('click', checkOrder); }, 0);
@@ -849,7 +924,7 @@
 【相关对象】L-CIR-03回路 / BRK-03断路器 / PDB-02配电柜 / LC-01控制器 / 18盏灯具
 【建议检查顺序】① BRK-03断路器 ② L-CIR-03回路绝缘/电流 ③ PDB-02馈线输出 ④ LC-01控制器 ⑤ 灯具分组验证
 【关联评分】82/100（不代表真实故障概率）
-【边界说明】具备回路级数据，可定位到回路/断路器；单灯级定位需现场确认。本结论为模拟诊断结果，非已完成现场确认。`);
+【边界说明】具备回路级数据，可定位到回路/断路器；单灯级定位需现场确认。现场核验：${fieldTask.review ? e.status + '，' + fieldTask.review.note : '待现场确认'}。`);
       });
     }
   };
@@ -883,6 +958,18 @@
         'CAM-01': { abnormal: [['设备离线', '心跳丢失，视频码流中断', 'err'], ['图像质量', '离线前图像质量评分正常', 'ok']], clue: '摄像机当前离线，属青岭北洞集体离线事件。离线前图像质量正常，不支持本体故障判断，优先核查上联网络。', data: '具备在线状态/码流/图像质量数据；离线期间无实时数据。', link: ['scene-camera', '查看摄像机诊断 ›'] },
         'JF-01': { abnormal: [['运行时长', '累计运行超保养周期（提示）', 'info'], ['振动速度', '振动速度2.1mm/s，正常区间', 'ok']], clue: '射流风机运行参数正常，运行时长超保养周期建议季度检测。风机运行组合存在能耗优化空间。', data: '具备功率/电流/振动/运行时长数据；无轴承专用传感器，当前数据不足以支持轴承早期磨损诊断。', link: ['fan', '查看风机优化 ›'] }
       };
+      const camera = D.events.find(e => e.id === 'EV-1123-01');
+      const review = D.tasks.find(t => t.eventId === camera.id).review;
+      if (review?.checks?.streams) {
+        const stream = review.checks.streams['CAM-01'];
+        DIAG['CAM-01'].abnormal = [['实时画面', { offline: '设备仍离线', frozen: '设备已在线，实时画面冻结', live: '设备已在线，实时画面连续' }[stream], stream === 'live' ? 'ok' : 'err']];
+        if (D.byCode['SW-12'].status === 'online') DIAG['SW-12'].abnormal = [['上联端口', '端口通信已恢复', 'ok']];
+        if (review.checks.link) {
+          DIAG['FIBER-07'].abnormal = [['接收光功率', '现场复测正常', 'ok']];
+          DIAG['OTN-02'].abnormal = [['收光功率', '管理站侧收光正常，上联光链路已复测', 'ok']];
+        }
+        ['CAM-01', 'SW-12', 'FIBER-07', 'OTN-02'].forEach(code => { DIAG[code].clue = camera.recoverySummary; });
+      }
       el.innerHTML = U.pageHead('重点设备分析 · 设备状态与专业诊断',
         '对少数高影响、高成本设备开展专业分析，而非对所有设备套用同一预测算法。指标与趋势随设备类型变化；无专用传感器或必要数据时明确提示数据不足。',
         `<button class="btn" id="kd-topo">${U.icon('topo', 14)} 查看关联关系</button>

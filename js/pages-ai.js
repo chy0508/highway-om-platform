@@ -21,15 +21,14 @@
     const off = D.devices.filter(d => d.status === 'offline');
     const byCat = {};
     off.forEach(d => { byCat[d.cat] = (byCat[d.cat] || 0) + 1; });
-    const tunnelOff = off.filter(d => d.tunnel);
     const hero = off.filter(d => /^CAM-0[1-4]$/.test(d.code));
     return {
-      summary: `当前模拟数据中共 <b>${off.length}</b> 台设备离线，其中位于隧道/路段沿线的 <b>${tunnelOff.length}</b> 台。青岭隧道 K18+200 处 <b>${hero.length}</b> 台摄像机（CAM-01~04）呈集体离线，已生成诊断事件 EV-1123-01。`,
+      summary: `当前模拟台账中有 <b>${off.length}</b> 台设备离线。青岭隧道北洞事件 EV-1123-01 涉及四路摄像机，目前仍有 <b>${hero.length}</b> 路离线，事件状态为${D.events.find(e => e.id === 'EV-1123-01').status}。`,
       data: Object.keys(byCat).map(c => ({ label: D.CATS[c].name + '离线', value: byCat[c] + ' 台' })).concat([{ label: '离线占比', value: (off.length / D.devices.length * 100).toFixed(1) + '%' }]),
       basis: [
         `设备台账状态统计：在线 ${D.stats().online} / 异常 ${D.stats().warn} / 离线 ${off.length}。`,
         `集体离线设备：${hero.map(d => d.code + '（' + d.place + '）').join('、') || '无'}。`,
-        `离线设备多集中于同一上联交换机 SW-12 与机柜 CAB-03，提示共性上游因素（关联，非确认因果）。`
+        `青岭北洞事发时的四路摄像机共用接入交换机 SW-12 与机柜 CAB-03。`
       ],
       limits: ['离线状态来自数据快照，非真实设备实时状态。', '空间集中仅为关联线索，根因需结合拓扑与现场确认。'],
       links: [{ label: '摄像机离线场景', page: 'scene-camera', params: { id: 'EV-1123-01' } }, { label: '设备关系拓扑', page: 'topology' }, { label: '设备监测·离线', page: 'devices', params: { status: 'offline' } }],
@@ -39,10 +38,10 @@
   function cameraAnswer() {
     const ev = D.events.find(e => e.id === 'EV-1123-01');
     return {
-      summary: `4 台摄像机（CAM-01~04）于 ${D.fmtTime(ev.time, 'full')} 集体离线。按关联评分，<b>优先排查 SW-12 上联光链路 FIBER-07</b>（评分 86）；其次 SW-12 上联光口（72）。供电回路 CAB-03 当前未发现同步异常，暂列次要候选（18）。`,
+      summary: `4 台摄像机（CAM-01~04）于 ${D.fmtTime(ev.time, 'full')} 集体离线。事发时的首要排查对象为 SW-12 上联光链路 FIBER-07（关联评分 86）。当前状态为<b>${ev.status}</b>。${ev.recoverySummary || '等待现场核查。'}`,
       data: [{ label: '影响设备', value: ev.affected.length + ' 台' }, { label: '最高候选评分', value: '86（关联评分）' }, { label: '故障源候选', value: '4 项' }, { label: '事件状态', value: ev.status }],
       basis: [
-        `拓扑路径：CAM-01~04 → SW-12（端口1-4，down）→ FIBER-07（down）→ OTN-02（warn）→ CSW-01。`,
+        `事发时拓扑记录为 CAM-01~04 经 SW-12 的 1 至 4 号端口上联 FIBER-07，当时端口与上联链路均报告中断。`,
         `时间对齐：4 台摄像机离线时刻高度一致，且与 SW-12 上联光功率下降同步。`,
         `供电核查：CAB-03 输出电压/电流在离线时段无同步异常（模拟数据），故供电候选评分较低。`,
         `光功率：FIBER-07 接收光功率较基线下降，误码率上升（DS-02 通信网管）。`
@@ -124,11 +123,11 @@
   const LIM = ['以上为内置模拟数据分析，非真实系统结论。', '关联不等于因果；结论需现场核查确认。'];
   function dashboardAnswer() {
     const s = D.stats();
-    const major = D.events.filter(e => e.level === '严重' && e.status !== '已恢复').length;
+    const major = D.events.filter(D.isOpenMajor).length;
     const cm = D.costMonthly[D.costMonthly.length - 1];
-    return A(`当前运行态势：纳管 <b>${s.total.toLocaleString()}</b> 台设备，在线 <b>${s.online.toLocaleString()}</b> 台（在线率 ${s.onlineRate.toFixed(2)}%），异常 ${s.warn} 台、离线 ${s.offline} 台；今日告警 <b>${D.todayAlarms}</b> 条，未解除严重事件 <b>${major}</b> 起。本月运维成本示例测算 <b>${(cm.energy + cm.parts + cm.service + cm.field + cm.emergency).toFixed(1)} 万元</b>。`,
-      [{ label: '在线率', value: s.onlineRate.toFixed(2) + '%' }, { label: '异常/离线', value: s.warn + ' / ' + s.offline }, { label: '今日告警', value: D.todayAlarms + ' 条' }, { label: '未解除严重', value: major + ' 起' }],
-      ['设备状态为数据快照统计（在线 ' + s.online + ' / 异常 ' + s.warn + ' / 离线 ' + s.offline + '）。', '严重事件集中于青岭隧道摄像机集体离线与 Z-03 照明区域异常。', '成本为统计口径示例测算，能源费用占比最高。'],
+    return A(`当前运行态势：纳管 <b>${s.total.toLocaleString()}</b> 台设备，在线 <b>${s.online.toLocaleString()}</b> 台（在线率 ${s.onlineRate.toFixed(2)}%），异常 ${s.warn} 台、离线 ${s.offline} 台；近24小时告警 <b>${D.recentAlarms.length}</b> 条，未解除严重事件 <b>${major}</b> 起。本月运维成本示例测算 <b>${(cm.energy + cm.parts + cm.service + cm.field + cm.emergency).toFixed(1)} 万元</b>。`,
+      [{ label: '在线率', value: s.onlineRate.toFixed(2) + '%' }, { label: '异常/离线', value: s.warn + ' / ' + s.offline }, { label: '近24小时告警', value: D.recentAlarms.length + ' 条' }, { label: '未解除严重', value: major + ' 起' }],
+      ['设备状态为数据快照统计（在线 ' + s.online + ' / 异常 ' + s.warn + ' / 离线 ' + s.offline + '）。', '未解除严重事件按当前现场核验结果统计。', '成本为统计口径示例测算，能源费用占比最高。'],
       LIM.concat(['态势数据不连接真实设备与业主系统。']),
       [{ label: '设备监测', page: 'devices' }, { label: '诊断中心', page: 'diagnosis' }, { label: '成本分析', page: 'cost' }], []);
   }
@@ -158,9 +157,9 @@
       [{ label: '数据接入', page: 'sources' }, { label: '质量规则配置', page: 'config' }], []);
   }
   function diagnosisAnswer() {
-    const act = D.events.filter(e => e.status !== '已恢复');
+    const act = D.events.filter(e => !e.status.includes('已恢复'));
     const by = l => D.events.filter(e => e.level === l).length;
-    return A(`诊断事件共 <b>${D.events.length}</b> 起（严重 ${by('严重')} / 重要 ${by('重要')} / 一般 ${by('一般')} / 提示 ${by('提示')}），其中未恢复 <b>${act.length}</b> 起。严重事件为摄像机集体离线（EV-1123-01）与照明区域异常，均已给出故障源候选与关联评分，状态为“现场待确认/候选”，非已确认故障。`,
+    return A(`诊断事件共 <b>${D.events.length}</b> 起，其中未恢复 <b>${act.length}</b> 起，未恢复重大事件 ${act.filter(D.isOpenMajor).length} 起。`,
       [{ label: '事件总数', value: D.events.length + ' 起' }, { label: '未恢复', value: act.length + ' 起' }, { label: '严重', value: by('严重') + ' 起' }, { label: '评分口径', value: '关联评分' }],
       act.slice(0, 5).map(e => `${e.id} ${e.name}：${e.status}，候选 ${e.candidate || '见诊断页'}。`),
       LIM.concat(['措辞规范：可能原因/故障源候选/建议优先检查。']),
@@ -208,7 +207,7 @@
   }
   function topoAnswer() {
     const rel = D.relations.filter(r => r.source === 'SW-12' || r.target === 'SW-12');
-    return A(`设备关系拓扑共 <b>${D.relations.length}</b> 条关系（网络上联/光链路/供电回路/控制指令/同机柜）。以 SW-12 为例：下联 CAM-01~04（端口 down），上联 FIBER-07 光链路（down）→ OTN-02 → CSW-01。拓扑用于<b>关联分析</b>：集体离线设备的共性上游即为故障源候选线索，关联非因果。`,
+    return A(`设备关系拓扑共 <b>${D.relations.length}</b> 条关系。SW-12 下联 CAM-01 至 CAM-04，经 FIBER-07 上联 OTN-02。下方列出各链路当前状态。`,
       [{ label: '关系总数', value: D.relations.length + ' 条' }, { label: 'SW-12 关联', value: rel.length + ' 条' }, { label: '用途', value: '故障源候选线索' }],
       rel.slice(0, 6).map(r => `${r.source} → ${r.target}：${r.type}（${r.status}）。`),
       LIM, [{ label: '关系拓扑', page: 'topology' }, { label: '摄像机离线诊断', page: 'scene-camera' }], ['SW-12', 'FIBER-07']);
@@ -297,7 +296,7 @@
       const ctx = { device: params.device || params.focus || null, event: params.id || null };
       let messages = [];
       let lastRefs = [];
-      const initialQ = params.q ? decodeURIComponent(params.q) : (ctx.device ? '这台设备近30天有哪些异常？' : null);
+      const initialQ = params.q || (ctx.device ? '这台设备近30天有哪些异常？' : null);
       el.innerHTML = U.pageHead('AI辅助分析 · 运维数据问答',
         '基于本原型内置模拟数据的辅助分析问答。回答含结论摘要、关键数据、分析依据、限制条件与跳转链接；仅就现有数据作答，无数据则说明无法判断，不将关联当因果，不提供控制/审批/外部操作。',
         `<button class="btn" id="ai-reset">${U.icon('reset', 14)} 重置对话</button>
@@ -323,7 +322,7 @@
               <div class="card-b" id="ai-ctx"></div></div>
             <div class="card mt"><div class="card-h"><span class="card-t">使用边界</span></div>
               <div class="card-b"><div class="note-box gray" style="margin:0">
-                <div class="small" style="line-height:1.8">· 仅基于内置模拟数据，不联网<br>· 无数据 → 说明无法判断<br>· 关联 ≠ 因果，评分为关联评分<br>· 不提供控制/审批/外部操作<br>· 结论需现场核查确认</div>
+                <div class="small" style="line-height:1.8">${window.PersonalQwen ? '· 千问云端分析相关演示数据' : '· 仅基于内置模拟数据，不联网'}<br>· 无数据 → 说明无法判断<br>· 关联 ≠ 因果，评分为关联评分<br>· 不提供控制/审批/外部操作<br>· 结论需现场核查确认</div>
               </div></div></div>
           </div>
         </div>`;
@@ -385,13 +384,19 @@
         thread.scrollTop = thread.scrollHeight;
       }
       function ask(q) {
-        if (!q || !q.trim()) return;
+        if (!q || !q.trim() || window.PersonalQwen?.busy(thread)) return;
         userMsg(q);
-        const a = answer(q, ctx);
-        aiMsg(a, q);
+        if (window.PersonalQwen) PersonalQwen.answer(q, ctx, thread, el.querySelector('#ai-send'), drawRefs);
+        else aiMsg(answer(q, ctx), q);
         el.querySelector('#ai-input').value = '';
       }
       function welcome() {
+        if (window.PersonalQwen) {
+          PersonalQwen.reset(thread, el.querySelector('#ai-send'));
+          thread.innerHTML = '<div class="note-box blue"><b>千问运维助手</b><p>提问和相关演示数据将发送至阿里云。可以查询设备、事件和现场任务。</p></div>';
+          drawRefs([]);
+          return;
+        }
         thread.innerHTML = '';
         const w = document.createElement('div');
         w.style.cssText = 'align-self:flex-start;max-width:92%';
@@ -406,7 +411,7 @@
       el.querySelector('#ai-reset').addEventListener('click', () => { welcome(); U.toast('对话已重置', 'ok'); });
       el.querySelector('#ai-limit').addEventListener('click', () => {
         U.modal('AI辅助分析 · 使用限制说明', `
-          <div class="note-box blue mb">本功能为辅助分析问答，仅基于内置模拟数据，不接入真实系统、不联网。</div>
+          <div class="note-box blue mb">${window.PersonalQwen ? '本机通过千问个人会话分析平台演示数据。' : '本功能为辅助分析问答，仅基于内置模拟数据，不接入真实系统、不联网。'}</div>
           <div class="kv"><span class="k">数据范围</span><span class="v">设备台账/告警/诊断事件/成本/任务/成效等模拟数据</span>
           <span class="k">作答原则</span><span class="v">仅就现有数据作答；无数据则说明无法判断，不编造</span>
           <span class="k">因果边界</span><span class="v">关联不等于因果；评分为“关联评分”，非真实概率</span>

@@ -6,9 +6,9 @@ const RoadData=(()=>{
     {id:'C', name:'松岚隧道',km:20,counts:[12,4,30,6],factor:1.12,window:'11/23 14:00–16:00'}
   ];
   const events=[
-    {id:'camera',site:'B',title:'监控点集中离线',code:'EV-1123-03',time:'09:42',type:'视频监控',severity:'高',impact:4},
-    {id:'lights',site:'C',title:'照明回路无反馈',code:'EV-1123-02',time:'09:26',type:'隧道照明',severity:'高',impact:3},
-    {id:'pulse',site:'A',title:'监控端口间歇掉线',code:'EV-1123-01',time:'08:58',type:'通信网络',severity:'中',impact:1}
+    {id:'camera',site:'B',title:'监控点集中离线',code:'QLD-EV-1123-03',time:'09:42',type:'视频监控',severity:'高',impact:4},
+    {id:'lights',site:'C',title:'照明回路无反馈',code:'QLD-EV-1123-02',time:'09:26',type:'隧道照明',severity:'高',impact:3},
+    {id:'pulse',site:'A',title:'监控端口间歇掉线',code:'QLD-EV-1123-01',time:'08:58',type:'通信网络',severity:'中',impact:1}
   ];
   const candidates=[
     {id:'ETC-A01',name:'收费车道控制器',budget:12000,risk:1,impact:'影响收费车道',cost:9200},

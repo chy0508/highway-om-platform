@@ -210,49 +210,37 @@
   P.gis = {
     title: '数字孪生一张图', group: '数字孪生一张图',
     render(el, params) {
-      const bridgeView = params.view === 'bridge';
+      const bridgeView = params.view !== 'workbench' && (['bridge', 'songlan'].includes(params.view) || params.scope);
       const modes = [['macro', 'map', '宏观路网'], ['road', 'road', '路段孪生'], ['tunnel', 'cube', '隧道孪生'], ['room', 'db', '机房孪生']];
       const heading = `<header class="gis-heading">
-        <div class="page-title">数字孪生一张图 · ${bridgeView ? '桥隧场景' : '重点区位数字孪生'} ${U.demoBadge()}</div>
+        <div class="page-title">数字孪生一张图 · ${bridgeView ? '桥隧孪生' : params.mode === 'macro' ? '宏观路网' : '设备孪生'} ${U.demoBadge()}</div>
         <div class="gis-toolbar" role="group" aria-label="孪生场景工具栏">
           <div class="btn-group" id="gis-mode">${modes.map(([key, icon, label]) =>
             `<button type="button" class="seg" data-m="${key}" aria-pressed="false">${U.icon(icon, 13)} ${label}</button>`).join('')}</div>
-          <select class="sel" id="gis-scene" aria-label="场景点位"${bridgeView ? ' disabled' : ''}>${bridgeView ? '<option>桥隧场景</option>' : ''}</select>
-          <button type="button" class="btn" id="gis-back">${U.icon('back', 14)} 返回宏观</button>
-          <button type="button" class="btn primary" id="gis-view-switch">${U.icon(bridgeView ? 'back' : 'road', 15)} ${bridgeView ? '返回设备孪生' : '切换至桥隧场景'}</button>
+          ${bridgeView || params.mode !== 'macro' ? '<select class="sel" id="gis-scene" aria-label="场景点位"></select>' : ''}
+          ${bridgeView || params.mode === 'macro' ? '<button type="button" class="btn" id="gis-environment" role="switch" aria-label="地形环境"></button>' : ''}
         </div></header>`;
       if (bridgeView) {
-        const { view, ...returnParams } = params;
-        el.innerHTML = `<section class="gis-bridge">
-          ${heading}
-          <iframe class="gis-bridge-frame" title="青岚高速东段桥隧场景" src="cockpit.html#/route/qinglan" allowfullscreen></iframe>
-        </section>`;
-        el.querySelector('#gis-view-switch').onclick = () => U.go('gis', returnParams);
-        el.querySelectorAll('#gis-mode button').forEach(button => {
-          button.onclick = () => U.go('gis', button.dataset.m === returnParams.mode ? returnParams : { mode: button.dataset.m });
-        });
-        el.querySelector('#gis-back').onclick = () => U.go('gis', { mode: 'macro' });
-        // The bridge scene uses a different Three.js version and its own asset registry.
-        const frame = el.querySelector('iframe');
-        frame.addEventListener('load', () => {
-          if (frame.contentDocument?.getElementById('spatial')) return;
-          const message = document.createElement('p');
-          message.setAttribute('role', 'alert');
-          message.textContent = '桥隧场景暂未加载，请刷新页面重试。';
-          frame.replaceWith(message);
-        });
+        P.gis.renderBridge(el, params, heading);
         return;
       }
       let mode = ['road', 'room', 'macro', 'tunnel'].includes(params.mode) ? params.mode : params.mode === 'bim' ? 'tunnel' : null;
       const fdev = params.focus ? D.byCode[params.focus] : null;
       const fpl = fdev ? (fdev.place || '') : '';
-      if (!mode) mode = params.focus ? (/机房/.test(fpl) && !/隧道/.test(fpl) ? 'room' : /隧道/.test(fpl) ? 'tunnel' : 'road') : 'tunnel';
-      let sceneKey = params.scene || (mode === 'tunnel' ? ((D.TUNNELS.find(t => fpl.indexOf(t.name) >= 0) || {}).id || 'QL') : mode === 'room' ? ((D.ROOMS.find(r => fpl.indexOf(r.name) >= 0) || {}).id || 'MR-01') : 'RS-QL');
+      const tunnel = fdev && (D.TUNNELS.find(t => fpl.includes(t.name)) || D.tunnelOf(fdev.km));
+      if (!mode) {
+        if (fdev?.cat === 'room' || /机房/.test(fpl)) mode = 'room';
+        else mode = !fdev || tunnel ? 'tunnel' : 'road';
+      }
+      let sceneKey = params.scene || (mode === 'tunnel' ? tunnel?.id || 'QL' : mode === 'room' ? ((D.ROOMS.find(r => fpl.indexOf(r.name) >= 0) || {}).id || 'MR-01') : 'RS-QL');
+      const startMode = mode, startScene = sceneKey;
+      const sceneFocus = () => mode === startMode && sceneKey === startScene ? params.focus : undefined;
       let twin = null;
+      let terrain = params.environment !== 'off';
       let buildSeq = 0;
       const ROAD = Twin.ROAD_SCENES;
       el.innerHTML = heading +
-        '<div class="page-desc gis-instructions">默认进入隧道数字孪生场景，映射风机/照明/配电等洞内机电与实时状态；右上角可切换宏观路网、路段孪生与机房孪生——路段展示情报板/摄像机/车流光轨，机房展示机柜排/UPS/精密空调与实时动环，提供模拟调控与预警预测。拖拽旋转 · 滚轮缩放 · 右键平移。</div>' +
+        '<div class="page-desc gis-instructions">点选设备查看档案。拖拽旋转，滚轮缩放，右键平移。</div>' +
         `<div class="flex">
           <div style="width:232px;flex:0 0 232px" class="flex col">
             <div class="card dark-panel">
@@ -281,7 +269,6 @@
           <div class="grow">
             <div class="twin-wrap" id="twin-box" style="height:600px">
               <div class="twin-hud">
-                <button class="hud-btn" id="hud-back" style="display:none">${U.icon('back', 13)} 宏观路网</button>
                 <button class="hud-btn" id="hud-top">${U.icon('eye', 13)} 俯瞰</button>
                 <button class="hud-btn" id="hud-inside" style="display:none">${U.icon('play', 13)} 洞内视角</button>
                 <button class="hud-btn on" id="hud-auto">${U.icon('reset', 13)} 自动巡航</button>
@@ -344,9 +331,13 @@
         </div>`;
       const box = el.querySelector('#twin-box');
       const info = el.querySelector('#twin-info');
+      const tunnelAssets = () => D.devices.filter(d => D.tunnelOf(d.km)?.id === sceneKey);
+      const lightingStatus = () => D.events.find(e => e.page === 'scene-lighting').status.includes('已恢复') ? '已恢复' : '异常';
       function showInfo(sel) {
         let html = '';
-        if (sel.kind === 'device') {
+        if (sel.kind === 'schematic') {
+          html = `<h4>${sel.name || '场景对象'}</h4><div class="row">结构示意 · 该对象尚未关联设备档案</div>`;
+        } else if (sel.kind === 'device') {
           const d = D.byCode[sel.code];
           if (!d) {
             html = `<h4><span class="tag info">场景对象</span> ${sel.name || sel.code}</h4>
@@ -361,6 +352,7 @@
               <div class="row"><span>最近数据</span><b>${D.fmtTime(d.lastComm)}</b></div>
               <div class="row"><span>当前告警</span><b>${acts} 条</b></div>
               <div class="acts"><button class="hud-btn" onclick="UI.openDevice('${d.code}')">查看详情</button>
+              ${D.events.filter(e => e.affected.includes(d.code)).map(e => `<button class="hud-btn" onclick="UI.openEvent('${e.id}')">${e.page === 'scene-camera' ? '诊断与修复核验' : '关联事件'}</button>`).join('')}
               <button class="hud-btn" onclick="UI.go('topology',{focus:'${d.code}'})">拓扑关系</button></div>`;
           }
         } else if (sel.kind === 'event') {
@@ -370,13 +362,14 @@
             <div class="row"><span>影响设备</span><b>${e.affected.length} 台</b></div>
             <div class="row"><span>诊断状态</span><b>${e.status}</b></div>
             <div style="margin-top:6px;color:#90a7c7;line-height:1.6">${e.summary}</div>
-            <div class="acts"><button class="hud-btn" onclick="UI.go('${e.page}',{id:'${e.id}'})">进入诊断分析 ›</button></div>`;
+            <div class="acts"><button class="hud-btn" onclick="UI.openEvent('${e.id}')">进入诊断分析 ›</button></div>`;
         } else if (sel.kind === 'zone') {
           const bad = sel.code === 'Z-03';
-          html = `<h4>${bad ? '<span class="tag err">异常</span>' : '<span class="tag ok">正常</span>'} ${sel.name}</h4>
+          const lightingEvent = bad && sceneKey === 'QL' ? D.events.find(e => e.page === 'scene-lighting') : null;
+          html = `<h4>${lightingEvent?.status === '已恢复' ? '<span class="tag ok">已核验恢复</span>' : bad ? '<span class="tag err">异常</span>' : '<span class="tag ok">正常</span>'} ${sel.name}</h4>
             <div class="row"><span>灯具数量</span><b>${bad ? 18 : 16} 盏</b></div>
             <div class="row"><span>供电回路</span><b class="mono">${bad ? 'L-CIR-03' : 'L-CIR-0' + sel.code.slice(-1)}</b></div>
-            <div class="row"><span>回路电流</span><b>${bad ? '0.4 A（异常）' : '15.8 A'}</b></div>
+            <div class="row"><span>${bad ? '事发时回路电流' : '回路电流'}</span><b>${bad ? '0.4 A（异常）' : '15.8 A'}</b></div>
             ${bad ? '<div style="margin-top:6px;color:#ff9d9d">18盏灯具同时失去反馈，集中于同一供电回路。</div><div class="acts"><button class="hud-btn" onclick="UI.go(\'scene-lighting\')">进入照明诊断 ›</button></div>' : '<div class="acts"><button class="hud-btn" onclick="UI.go(\'light\')">照明调光分析 ›</button></div>'}`;
         } else if (sel.kind === 'fan') {
           html = `<h4><span class="tag ok">运行</span> ${sel.name}</h4>
@@ -400,7 +393,7 @@
             <div class="row"><span>位置</span><b>${t.tunnel} ${D.kmText(t.km)}</b></div>
             <div class="row"><span>预计时长</span><b>${t.duration} 小时</b></div>
             <div class="row"><span>作业窗口</span><b>${t.window}</b></div>
-            <div class="acts"><button class="hud-btn" onclick="UI.go('tasks')">任务统筹 ›</button></div>`;
+            <div class="acts"><button class="hud-btn" onclick="UI.go('tasks',{id:'${t.id}'})">查看检修任务 ›</button></div>`;
         }
         if (mode === 'room' && sel.kind === 'device' && twin && twin.roomSim) {
           const s = twin.roomSim;
@@ -421,6 +414,7 @@
         showInfo(sel);
       }
       function drill(m, key) {
+        if (mode === 'macro' || mode === 'tunnel' || m === 'tunnel') { U.go('gis', {mode:m,scene:key}); return; }
         mode = m; sceneKey = key;
         rebuild();
         U.toast(m === 'tunnel' ? '已下钻进入隧道数字孪生场景' : m === 'room' ? '已下钻进入机房数字孪生场景' : '已下钻进入路段数字孪生场景', 'ok');
@@ -430,7 +424,7 @@
         if (mode === 'macro') {
           el.querySelector('#layer-title').textContent = '图层控制';
           const items = Object.keys(D.CATS).map(c => [c, D.CATS[c].name, D.catStats[c].total, D.CATS[c].color])
-            .concat([['events', '诊断事件', 2, '#ef4444'], ['tasks', '现场检测任务', D.tasks.length, '#8b5cf6']]);
+            .concat([['events', '未恢复重大事件', D.events.filter(D.isOpenMajor).length, '#ef4444'], ['tasks', '现场检测任务', D.tasks.length, '#8b5cf6']]);
           lb.innerHTML = items.map(([k, n, cnt, col]) => `
             <div class="flex ai-center" style="padding:4px 0;font-size:12px;color:#b9cde8">
               <span class="cd" style="width:9px;height:9px;border-radius:50%;background:${col};flex:0 0 9px"></span>
@@ -465,9 +459,15 @@
             showInfo({ kind: 'device', code: it.dataset.focus, name: it.textContent.replace('⚠ ', '') });
           }));
         } else {
+          if (mode === 'tunnel' && sceneKey !== 'QL') {
+            el.querySelector('#layer-title').textContent = '隧道设备档案';
+            lb.innerHTML = tunnelAssets().slice(0, 8).map(d => `<button class="hud-btn" data-asset="${d.code}">${d.code} · ${d.type}</button>`).join('');
+            lb.querySelectorAll('[data-asset]').forEach(b => b.onclick = () => U.openDevice(b.dataset.asset));
+            return;
+          }
           el.querySelector('#layer-title').textContent = mode === 'tunnel' ? '洞内对象定位' : '路段对象定位';
           const objs = mode === 'tunnel'
-            ? [['JF-01', '射流风机 JF-01'], ['JF-02', '射流风机 JF-02'], ['JF-03', '射流风机 JF-03'], ['JF-04', '射流风机 JF-04'], ['Z-03', '⚠ Z-03 照明分区'], ['CAM-01', '⚠ 摄像机 CAM-01'], ['CAB-03', '外场机柜 CAB-03'], ['PDB-02', '照明配电柜 PDB-02']]
+            ? [['JF-01', '射流风机 JF-01'], ['JF-02', '射流风机 JF-02'], ['JF-03', '射流风机 JF-03'], ['JF-04', '射流风机 JF-04'], ['Z-03', 'Z-03 照明分区 · '+lightingStatus()], ['CAM-01', '摄像机 CAM-01 · '+D.STATUS[D.byCode['CAM-01'].status].name], ['CAB-03', '外场机柜 CAB-03'], ['PDB-02', '照明配电柜 PDB-02']]
             : [['VMS-01', '情报板 VMS-01'], ['VMS-02', '情报板 VMS-02'], ['CAM-101', '门架摄像机 CAM-101'], ['CAM-201', '路侧摄像机 CAM-201'], ['MET-01', '气象检测器 MET-01']];
           lb.innerHTML = objs.map(([c, n]) => `<div class="nav-sub-item" style="padding:6px 8px;color:${n.includes('⚠') ? '#ff9d9d' : '#9fb4d0'}" data-focus="${c}">${n}</div>`).join('');
           lb.querySelectorAll('[data-focus]').forEach(it => it.addEventListener('click', () => {
@@ -587,15 +587,21 @@
             </div>`;
           if (twin && twin.roomSim) renderTelemetry(twin.roomSim, twin.simHist);
         } else {
-          const rows = mode === 'tunnel'
+          const registry = mode === 'tunnel' && sceneKey !== 'QL';
+          const rows = registry ? tunnelAssets().map(d => [d.code, d.type, D.STATUS[d.status].name]) : mode === 'tunnel'
             ? [['JF-01', '射流风机', '运行'], ['JF-02', '射流风机', '运行'], ['JF-03', '射流风机', '运行'], ['JF-04', '射流风机', '运行'], ['Z-03', '照明分区', '异常'], ['CAM-01', '洞内摄像机', '离线'], ['CAB-03', '外场机柜', '异常'], ['PDB-02', '照明配电柜', '异常'], ['COVI-01', 'CO/VI检测器', '在线'], ['SOS-01', '紧急电话/消火栓', '在线']]
             : [['VMS-01', '门架情报板', '在线'], ['VMS-02', '门架情报板', '在线'], ['CAM-101', '门架摄像机', '在线'], ['CAM-102', '门架摄像机', '在线'], ['CAM-201', '路侧摄像机', '在线'], ['MET-01', '气象检测器', '在线']];
-          bt.innerHTML = `<div class="card-h"><span class="card-t">场景设备清单</span><span class="sub">点击定位到孪生模型对象</span><span class="spacer"></span>${U.demoBadge()}</div>
+          if (mode === 'tunnel' && !registry) {
+            rows.forEach(row => { if (D.byCode[row[0]]) row[2] = D.STATUS[D.byCode[row[0]].status].name; });
+            rows.find(row => row[0] === 'Z-03')[2] = lightingStatus();
+          }
+          bt.innerHTML = `<div class="card-h"><span class="card-t">场景设备清单</span><span class="sub">${registry ? '当前隧道设备档案' : '点击定位到孪生模型对象'}</span><span class="spacer"></span>${U.demoBadge()}</div>
             <div class="card-b tight"><table class="tbl"><thead><tr><th>编码</th><th>类型</th><th>状态</th><th style="width:90px">操作</th></tr></thead><tbody>
-            ${rows.map(([c, t, s]) => `<tr><td class="mono">${c}</td><td>${t}</td><td>${s === '在线' || s === '运行' ? '<span class="tag ok">' + s + '</span>' : s === '异常' ? '<span class="tag warn">' + s + '</span>' : '<span class="tag err">' + s + '</span>'}</td><td><button class="btn sm" data-loc="${c}">定位</button></td></tr>`).join('')}
+            ${rows.map(([c, t, s]) => `<tr><td class="mono">${c}</td><td>${t}</td><td><span class="tag ${['在线','运行','已恢复'].includes(s) ? 'ok' : s === '异常' ? 'warn' : 'err'}">${s}</span></td><td><button class="btn sm" data-loc="${c}">${registry ? '档案' : '定位'}</button></td></tr>`).join('')}
             </tbody></table></div>`;
           bt.querySelectorAll('[data-loc]').forEach(b => b.addEventListener('click', () => {
             const c = b.dataset.loc;
+            if (registry) { U.openDevice(c); return; }
             twin && twin.focus(c);
             if (c.startsWith('Z-')) showInfo({ kind: 'zone', code: c, name: c + ' 照明分区' });
             else if (c.startsWith('JF')) showInfo({ kind: 'fan', code: c, name: '射流风机 ' + c });
@@ -605,8 +611,7 @@
       }
       function syncSceneSel() {
         const sel = el.querySelector('#gis-scene');
-        sel.disabled = mode === 'macro';
-        if (sel.disabled) { sel.innerHTML = '<option>全线路网</option>'; return; }
+        if (!sel) return;
         const opts = mode === 'tunnel' ? D.TUNNELS.map(t => [t.id, t.name]) : mode === 'room' ? D.ROOMS.map(r => [r.id, r.name]) : ROAD.map(r => [r.id, r.name]);
         sel.innerHTML = opts.map(([v, n]) => `<option value="${v}" ${v === sceneKey ? 'selected' : ''}>${n}</option>`).join('');
       }
@@ -622,8 +627,6 @@
         el.querySelector('#hud-live').style.display = mode === 'room' ? '' : 'none';
         el.querySelector('#ctl-view option[value="inside"]').disabled = mode === 'macro';
         el.querySelector('#gis-status-card').style.display = mode === 'macro' ? '' : 'none';
-        el.querySelector('#hud-back').style.display = mode === 'macro' ? 'none' : '';
-        el.querySelector('#gis-back').disabled = mode === 'macro';
         const inside = el.querySelector('#hud-inside');
         inside.style.display = mode === 'macro' ? 'none' : '';
         inside.innerHTML = mode === 'tunnel' ? U.icon('play', 13) + ' 洞内视角' : U.icon('play', 13) + ' 贴近视角';
@@ -637,7 +640,7 @@
           : mode === 'room'
             ? '<div class="li"><span class="cd" style="background:#19b8ff"></span>在线机柜 / 冷通道地砖</div><div class="li"><span class="cd" style="background:#f59e0b"></span>异常 / 蓄电池组</div><div class="li"><span class="cd" style="background:#39424c"></span>离线机柜</div><div class="li"><span class="cd" style="background:#39ff8e"></span>UPS / 动环正常</div>'
             : mode === 'tunnel'
-              ? '<div class="li"><span class="cd" style="background:#ffd28a"></span>照明正常分区</div><div class="li"><span class="cd" style="background:#ef4444"></span>Z-03 异常 / 离线摄像机</div><div class="li"><span class="cd" style="background:#4fd8f0"></span>运行风机 / 控制设备</div>'
+              ? '<div class="li"><span class="cd" style="background:#ffd28a"></span>照明分区</div><div class="li"><span class="cd" style="background:#4fd8f0"></span>风机与控制设备</div>'
               : '<div class="li"><span class="cd" style="background:#39ff8e"></span>情报板 / 尾灯光轨</div><div class="li"><span class="cd" style="background:#ffc46b"></span>头灯光轨 / 路灯</div><div class="li"><span class="cd" style="background:#7fb0ff"></span>摄像机 / 气象检测</div>';
         const loading = el.querySelector('#twin-loading');
         loading.style.display = 'flex';
@@ -645,11 +648,21 @@
           if (seq !== buildSeq || !box.isConnected) return;
           if (twin) { twin.destroy(); twin = null; }
           twin = new Twin.Twin(box, {
-            mode, sceneKey, onSelect,
+            mode, sceneKey, onSelect, terrain,
             onTelemetry: (s, h) => renderTelemetry(s, h),
             time: el.querySelector('#ctl-time .seg.on').dataset.t,
-            focus: params.focus || null
+            focus: sceneFocus() || null
           });
+          if (mode === 'macro' && twin.fallbackEl) {
+            const button = el.querySelector('#gis-environment');
+            if (button) {
+              button.disabled = true;
+              button.title = '二维示意模式无法显示三维地形';
+              button.textContent = '二维路网';
+              button.classList.remove('primary');
+              button.setAttribute('aria-checked', 'false');
+            }
+          }
           twin.setTraffic(+el.querySelector('#ctl-traffic').value);
           twin.setFog(+el.querySelector('#ctl-fog').value / 100);
           twin.setLabels(el.querySelector('#ctl-labels').classList.contains('on'));
@@ -666,9 +679,11 @@
           }
           loading.style.display = 'none';
           buildLayers();
-          if (params.focus) {
-            const d = D.byCode[params.focus];
+          if (sceneFocus()) {
+            const d = D.byCode[sceneFocus()];
             if (d) showInfo({ kind: 'device', code: d.code });
+            else if (mode === 'tunnel' && sceneKey === 'QL' && params.focus === 'Z-03')
+              showInfo({ kind: 'zone', code: 'Z-03', name: 'Z-03 照明分区' });
           }
         }, 30);
       }
@@ -682,24 +697,32 @@
       }
       rebuild();
       /* ---- 头部导航 ---- */
-      el.querySelector('#gis-view-switch').onclick = () => {
-        const current = { ...params, mode };
-        if (mode === 'macro') delete current.scene;
-        else current.scene = sceneKey;
-        // Keep browser Back and the return button on the same equipment scene.
-        history.replaceState(history.state, '', '#/gis?' + new URLSearchParams(current));
-        U.go('gis', { ...current, view: 'bridge' });
-      };
-      el.querySelectorAll('#gis-mode .seg').forEach(b => b.addEventListener('click', () => {
+      const terrainButton = el.querySelector('#gis-environment');
+      if (terrainButton) {
+        const reflectTerrain = () => {
+          terrainButton.setAttribute('aria-checked', String(terrain));
+          terrainButton.classList.toggle('primary', terrain);
+          terrainButton.textContent = terrain ? '地形　开' : '地形　关';
+        };
+        reflectTerrain();
+        terrainButton.onclick = () => {
+          terrain = !terrain;
+          twin?.setRouteTerrain(terrain);
+          reflectTerrain();
+          history.replaceState(history.state, '', '#/gis?' + new URLSearchParams({...params, mode:'macro', environment:terrain ? 'on' : 'off'}));
+        };
+      }
+      el.querySelectorAll('#gis-mode [data-m]').forEach(b => b.addEventListener('click', () => {
         if (b.dataset.m === mode) return;
+        if (['macro','tunnel'].includes(mode) || ['macro','tunnel'].includes(b.dataset.m)) { U.go('gis', {mode:b.dataset.m}); return; }
         mode = b.dataset.m;
         sceneKey = mode === 'tunnel' ? 'QL' : mode === 'road' ? 'RS-QL' : mode === 'room' ? 'MR-01' : sceneKey;
         rebuild();
       }));
-      el.querySelector('#gis-scene').addEventListener('change', ev => { sceneKey = ev.target.value; rebuild(); });
-      const backMacro = () => { mode = 'macro'; rebuild(); };
-      el.querySelector('#gis-back').addEventListener('click', backMacro);
-      el.querySelector('#hud-back').addEventListener('click', backMacro);
+      el.querySelector('#gis-scene')?.addEventListener('change', ev => {
+        if (mode === 'tunnel') { U.go('gis', {mode, scene:ev.target.value}); return; }
+        sceneKey = ev.target.value; rebuild();
+      });
       el.querySelector('#hud-top').addEventListener('click', () => twin && twin.topView());
       el.querySelector('#hud-inside').addEventListener('click', () => twin && twin.insideView());
       function setAuto(on) {

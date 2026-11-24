@@ -102,21 +102,73 @@ function tag(parent,text,aria,action) {
   return button;
 }
 
-async function fetchAsset(file, timeout) {
-  const response = await fetch(assetRoot+file, {signal: AbortSignal.timeout(timeout)});
+async function fetchAsset(file, timeout, signal) {
+  const signals=[AbortSignal.timeout(timeout)];
+  if (signal) signals.push(signal);
+  const response=await fetch(assetRoot+file,{signal:AbortSignal.any(signals)});
   if (!response.ok) throw new Error('场景资源加载失败：'+file);
   return response;
 }
 
-export async function createSonglan(canvasHost,overlay,root) {
-  const loader = new GLTFLoader();
-  const loadModel = async (file, timeout) => {
-    const response = await fetchAsset(file, timeout);
-    return loader.parseAsync(await response.arrayBuffer(), assetRoot);
-  };
-  const [config, engineering] = await Promise.all([
-    fetchAsset('songlan-engineering.json', 12000).then(response=>response.json()),
-    loadModel('songlan-engineering.glb', 18000)
+async function loadModel(file, timeout, signal) {
+  const response=await fetchAsset(file,timeout,signal);
+  return new GLTFLoader().parseAsync(await response.arrayBuffer(),assetRoot);
+}
+
+function disposeMeshes(group, resources=new Set()) {
+  group.traverse(node=>{
+    if (node.geometry) resources.add(node.geometry);
+    for (const mat of [].concat(node.material || [])) {
+      resources.add(mat);
+      for (const value of Object.values(mat)) if (value?.isTexture) resources.add(value);
+    }
+  });
+  resources.forEach(resource=>resource.dispose());
+}
+
+function equipSite(engineering,config) {
+  const templates=new Map(), plaques=[];
+  engineering.traverse(node=>{
+    if (node.userData.assetId) templates.set(node.userData.kind,node);
+    if (/^Songlan[ _]portal[ _]name/i.test(node.name)) plaques.push(node);
+  });
+  // The original name is baked into two meshes on the portal faces.
+  const sign=document.createElement('canvas');
+  sign.width=512; sign.height=96;
+  const pen=sign.getContext('2d');
+  pen.fillStyle='#233b43'; pen.fillRect(0,0,512,96);
+  pen.font='bold 68px "Microsoft YaHei",sans-serif'; pen.fillStyle='white';
+  pen.textAlign='center'; pen.textBaseline='middle'; pen.fillText(config.site.name,256,49,488);
+  const texture=new THREE.CanvasTexture(sign); texture.colorSpace=THREE.SRGBColorSpace;
+  const signMaterial=new THREE.MeshBasicMaterial({map:texture,side:THREE.DoubleSide});
+  for (const plaque of plaques) {
+    plaque.visible=false;
+    const panel=new THREE.Mesh(new THREE.PlaneGeometry(4.6,.72),signMaterial);
+    panel.position.copy(plaque.position); panel.position.x-=.025;
+    panel.rotation.y=-Math.PI/2; engineering.add(panel);
+  }
+  const fan=new THREE.Group();
+  const shell=new THREE.Mesh(new THREE.CylinderGeometry(.62,.62,2.8,20,1,true),new THREE.MeshStandardMaterial({color:0x7793a1,metalness:.55,roughness:.42,side:THREE.DoubleSide}));
+  shell.rotation.z=Math.PI/2; fan.add(shell);
+  const blade=new THREE.Mesh(new THREE.BoxGeometry(.13,1.04,.15),new THREE.MeshStandardMaterial({color:0x374955}));
+  blade.position.x=-1.32; fan.add(blade);
+  const otherBlade=blade.clone(); otherBlade.rotation.x=Math.PI/2; fan.add(otherBlade);
+  templates.set('fan',fan);
+  for (const node of templates.values()) node.visible=false;
+  for (const device of config.devices) {
+    const object=templates.get(device.kind).clone(true);
+    object.name=device.id;
+    object.userData={assetId:device.id};
+    object.visible=true;
+    object.position.copy(fromBlender(device.position));
+    engineering.add(object);
+  }
+}
+
+export async function createSonglan(canvasHost,overlay,root,metadata) {
+  const [config,engineering]=await Promise.all([
+    metadata || fetchAsset('songlan-engineering.json',12000).then(r=>r.json()),
+    loadModel('songlan-engineering.glb',18000)
   ]);
   const renderer=new THREE.WebGLRenderer({antialias:true,powerPreference:'high-performance'});
   renderer.setPixelRatio(Math.min(window.devicePixelRatio,1.6));
@@ -139,13 +191,16 @@ export async function createSonglan(canvasHost,overlay,root) {
   controls.maxPolarAngle=Math.PI/2+.13;
   controls.minDistance=3;
   controls.maxDistance=790;
-  let water;
-  const preview = new THREE.Mesh(new THREE.PlaneGeometry(1700,1700), new THREE.MeshStandardMaterial({color:0x63745f}));
-  preview.rotation.x = -Math.PI / 2;
-  preview.position.y = -2;
-  preview.receiveShadow = true;
-  scene.add(preview);
+  const landscape=new THREE.Group();
+  const terrainRequest=new AbortController();
+  let water, waterMesh, originalWater, flowMap, terrainLoading=false, disposed=false;
+  const terrainStatus=document.createElement('div');
+  terrainStatus.className='terrain-status';
+  terrainStatus.setAttribute('role','status');
+  terrainStatus.hidden=true;
+  canvasHost.appendChild(terrainStatus);
 
+  if (config.site) equipSite(engineering.scene,config);
   const devices=new Map(config.devices.map(device=>[device.id,device]));
   const assetNodes=new Map();
   engineering.scene.traverse(node=>{
@@ -158,11 +213,81 @@ export async function createSonglan(canvasHost,overlay,root) {
   for (const id of devices.keys()) {
     if (!assetNodes.has(id)) throw new Error('松岚设备缺少独立模型：'+id);
   }
-  scene.add(engineering.scene);
+  scene.add(landscape,engineering.scene);
+  // The inspection drawing and the landscape share the north bore and its equipment.
+  const detail=config.site && window.Twin.createTunnelDetail(THREE,config.site.id);
+  if (detail) {
+    detail.scene.scale.set(.7,.63,.63);
+    detail.scene.position.set(341,27.2,8.5);
+    detail.scene.rotation.z=.007;
+    detail.draftingSurface[0].material.color.setHex(0x425a74);
+    detail.draftingSurface[1].material.opacity=.72;
+    detail.labelSprites[detail.labelSprites.length-1].position.y+=9;
+    scene.add(detail.scene);
+    detail.scene.updateMatrixWorld(true);
+    for (const child of detail.scene.children) if (child.isPointLight) child.visible=false;
+    for (const obj of [...detail.equipGroups.fan.children,...detail.equipGroups.cam.children,...detail.equipGroups.power.children]) {
+      const id=obj.userData.code;
+      if (!devices.has(id)) continue;
+      assetNodes.get(id).visible=false;
+      assetNodes.set(id,obj);
+      const p=obj.getWorldPosition(new THREE.Vector3());
+      devices.get(id).position=[p.x,-p.z,p.y];
+    }
+  }
+  // A local section cut is a separate camera tool. It works with either terrain state.
+  const sectionMaterials=new Set();
+  const groundSections=[];
+  const sectionLines=new THREE.Group();
+  sectionLines.visible=false;
+  const collect=object=>object.traverse(n=>{
+      if (n.isMesh) for (const m of [].concat(n.material)) if (!m.isShaderMaterial) sectionMaterials.add(m);
+    });
+  function prepareTerrainSections(valley) {
+    for(const node of valley.children) {
+      if (!/ridge.and.valley.floor|ridge.and.tunnel.cover/i.test(node.name)) {collect(node);continue;}
+      node.traverse(mesh=>{
+        if(!mesh.isMesh) return;
+        const whole=mesh.geometry, excavated=whole.clone(), points=excavated.attributes.position;
+        for(let i=0;i<points.count;i++) {
+          const x=points.getX(i), z=points.getZ(i);
+          // Open the overburden along the bore and grade the shoulder back into the original hillside.
+          const outside=Math.max(267-x,x-445,-30-z,z-68,0);
+          const formation=20+.007*x+outside*.88;
+          if(points.getY(i)>formation) points.setY(i,formation);
+        }
+        excavated.computeVertexNormals();
+        groundSections.push({mesh,whole,excavated});
+      });
+    }
+  }
+  if (config.site) {
+    renderer.localClippingEnabled=true;
+    config.cameras.cutaway={position:[414,-71,76],target:[341,-8.5,29],fov:46};
+    config.cameras.top={position:[364,-22,140],target:[341,-8.5,26],fov:49};
+    engineering.scene.children.filter(n=>/linings|cladding|wing.walls/i.test(n.name)).forEach(collect);
+    // Keep the tunnel cross-section legible where the roof is cut away.
+    const outline=new THREE.LineBasicMaterial({color:0xc6d4de,transparent:true,opacity:.76});
+    for (const center of [-8.5,8.5]) {
+      for (let x=278;x<=404;x+=25) {
+        const floor=22+.007*x;
+        const points=[fromBlender([x,center+6,floor])];
+        for (let step=0;step<=24;step++) {
+          const angle=Math.PI*step/24;
+          points.push(fromBlender([x,center+6*Math.cos(angle),floor+1.95+6*Math.sin(angle)]));
+        }
+        points.push(fromBlender([x,center-6,floor]));
+        sectionLines.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(points),outline));
+      }
+    }
+    scene.add(sectionLines);
+  }
+  const sectionPlanes=[new THREE.Plane(new THREE.Vector3(-1,0,0),272),new THREE.Plane(new THREE.Vector3(0,-1,0),26.4),
+    new THREE.Plane(new THREE.Vector3(1,0,0),-505),new THREE.Plane(new THREE.Vector3(0,0,-1),-19),new THREE.Plane(new THREE.Vector3(0,0,1),-135)];
   const selectedOutline=new THREE.Box3Helper(new THREE.Box3(),0x67e8cf);
   selectedOutline.visible=false;
   scene.add(selectedOutline);
-  const lightDevice=config.devices.find(device=>device.eventId==='lights');
+  const lightDevices=config.devices.filter(device=>device.kind==='luminaire');
   const tunnelLighting=new THREE.Group();
   for (const x of [293,306,321,342,370]) {
     const fill=new THREE.PointLight(0xfff0d9,24,25,1.55);
@@ -175,9 +300,9 @@ export async function createSonglan(canvasHost,overlay,root) {
   engineering.scene.traverse(node=>{
     if (node.isMesh && node.material.name==='LED luminaire operating modules') workingLed=node.material;
   });
-  assetNodes.get(lightDevice.id).traverse(node=>{
+  for (const device of lightDevices) assetNodes.get(device.id).traverse(node=>{
     if (node.isMesh && node.material.name==='LED luminaire inactive modules') {
-      lampMeshes.push({node,off:node.material});
+      lampMeshes.push({node,off:node.material,device});
     }
   });
 
@@ -186,10 +311,25 @@ export async function createSonglan(canvasHost,overlay,root) {
   const cursor=new THREE.Vector2();
   let visible=false, pending=0, lastFrame=-1000, selected=null, view='overview', lightTheme=false;
   let labelEnabled=true, closed=false, callbacks={}, width=0, height=0, pointerDown;
+  let cruising=false, lastInteraction=0;
+  const sectionView=()=>view==='cutaway' || view==='top';
+  function updateDetail() {
+    if (!detail) return;
+    const inspection=sectionView();
+    for(const section of groundSections) section.mesh.geometry=inspection ? section.excavated : section.whole;
+    detail.draftingSurface.forEach(n=>n.visible=inspection && !landscape.visible);
+    detail.labelSprites.forEach(n=>n.visible=inspection && labelEnabled);
+  }
 
-  const portalTag=tag(overlay,'松岚隧道 · K20+000','地图告警 照明回路无反馈',()=>callbacks.onEvent?.('lights'));
+  const site=config.site;
+  const portalLabel=site ? site.name+' · '+site.chainage : '松岚隧道 · K20+000';
+  const portalTag=tag(overlay,portalLabel,portalLabel,()=>{
+    if (!site) callbacks.onEvent?.('lights');
+    else if (site.eventId) callbacks.onEvent?.(site.eventId);
+    else setView('interior');
+  });
   const labels=new Map(config.devices.map(device=>[device.id,
-    tag(overlay,device.label,'选中'+device.label,()=>select(device.id,false))]));
+    tag(overlay,site ? device.id : device.label,'选中'+device.label,()=>select(device.id,false))]));
 
   function project(node,coordinates,allowed=true) {
     if (!allowed) {
@@ -207,25 +347,46 @@ export async function createSonglan(canvasHost,overlay,root) {
 
   function layoutLabels() {
     project(portalTag,config.anchors.portal,labelEnabled && view==='overview');
-    for (const [id,label] of labels) {
+    const occupied=[];
+    const order=view==='cutaway' && selected ? [[selected,labels.get(selected)],...Array.from(labels).filter(([id])=>id!==selected)] : labels;
+    for (const [id,label] of order) {
       const device=devices.get(id);
-      const inTunnel=device.kind==='luminaire';
-      const shown=view==='interior' ? inTunnel && (id===selected || device.eventId==='lights') :
-        !inTunnel && id===selected;
-      const warning=device.eventId==='lights' && !closed;
+      const inTunnel=site ? device.inside : device.kind==='luminaire';
+      const warning=site ? device.warning : device.eventId==='lights' && !closed;
+      const shown=id===selected || (view==='interior' && inTunnel && warning && (!site || !selected));
       label.classList.toggle('warning',warning);
       project(label,device.position,labelEnabled && shown);
+      if(view==='cutaway' && !label.hidden) {
+        const r=label.getBoundingClientRect();
+        label.hidden=occupied.some(b=>r.left<b.right+4 && r.right>b.left-4 && r.top<b.bottom+3 && r.bottom>b.top-3);
+        if(!label.hidden) occupied.push(r);
+      }
     }
   }
 
   function render(now) {
     pending=0;
     if (!visible) return;
+    const dt=Math.min(.08,Math.max(0,(now-lastFrame)/1000));
+    if (cruising && sectionView() && now-lastInteraction>1500 && !document.hidden) {
+      const offset=camera.position.clone().sub(controls.target).applyAxisAngle(new THREE.Vector3(0,1,0),dt*.095);
+      camera.position.copy(controls.target).add(offset); camera.lookAt(controls.target);
+    }
+    if (detail && sectionView() && !reducedMotion.matches) {
+      for (const fan of detail.spinners) fan.obj.rotation.x+=dt*fan.speed;
+      const cars=detail.carsTunnel, m=new THREE.Matrix4();
+      cars.list.forEach((car,i)=>{
+        car.x=(car.x+90+dt*car.v)%180-90;
+        m.makeTranslation(car.x,-3.6,car.off);
+        cars.mesh.setMatrixAt(i,m);
+      });
+      cars.mesh.instanceMatrix.needsUpdate=true;
+    }
     if (water) water.uniforms.elapsed.value=reducedMotion.matches ? 0 : now/1000;
     renderer.render(scene,camera);
     layoutLabels();
     lastFrame=now;
-    if (water && view==='overview' && !reducedMotion.matches && !document.hidden) {
+    if (!document.hidden && ((water && landscape.visible && view==='overview' || detail && sectionView()) && !reducedMotion.matches || cruising && sectionView())) {
       pending=requestAnimationFrame(function animate(time) {
         if (!visible) {
           pending=0;
@@ -264,18 +425,80 @@ export async function createSonglan(canvasHost,overlay,root) {
     redraw();
   }
 
+  function updateClipping() {
+    for (const m of sectionMaterials) {
+      m.clippingPlanes=sectionView() ? sectionPlanes : null;
+      m.clipIntersection=true;
+      m.needsUpdate=true;
+    }
+  }
+
+  async function loadTerrain() {
+    if (terrainLoading || disposed || landscape.children.length && (!waterMesh || water)) return;
+    terrainLoading=true;
+    terrainStatus.hidden=!landscape.visible;
+    terrainStatus.textContent='正在补载地形细节';
+    try {
+      if (!landscape.children.length) {
+        const {scene:valley}=await loadModel('songlan-valley.glb',30000,terrainRequest.signal);
+        if (disposed) { disposeMeshes(valley); return; }
+        valley.traverse(node=>{
+          if (!node.isMesh) return;
+          node.receiveShadow=true;
+          if (/songlanwater/i.test(node.name) || [].concat(node.material).some(m=>/songlanwater/i.test(m.name))) waterMesh=node;
+        });
+        if (detail) prepareTerrainSections(valley);
+        landscape.add(valley);
+        updateDetail(); updateClipping();
+        renderer.shadowMap.needsUpdate=true;
+        root.dataset.terrainReady='true';
+        redraw();
+      }
+      if (waterMesh && !water) {
+        const texture=await new THREE.TextureLoader().loadAsync(assetRoot+'songlan-water-normal.png');
+        if (disposed) {texture.dispose();return;}
+        flowMap=texture;
+        flowMap.wrapS=flowMap.wrapT=THREE.RepeatWrapping;
+        water=riverMaterial(flowMap);
+        water.uniforms.lightTheme.value=lightTheme ? 1 : 0;
+        originalWater=waterMesh.material;
+        waterMesh.material=water;
+        redraw();
+      }
+      terrainStatus.hidden=true;
+    } catch (error) {
+      if (disposed) return;
+      terrainStatus.textContent=landscape.children.length ? '水面细节未加载 ' : '地形未加载，桥隧模型仍可查看 ';
+      const retry=document.createElement('button');
+      retry.type='button';retry.className='scene-retry';retry.textContent='重试';
+      retry.onclick=loadTerrain;
+      terrainStatus.appendChild(retry);
+      terrainStatus.hidden=!landscape.visible;
+    } finally {terrainLoading=false;}
+  }
+
   function setView(name) {
     const pose=config.cameras[name];
     if (!pose) return;
     view=name;
+    lastInteraction=performance.now();
     root.dataset.pilotView=name;
+    sectionLines.visible=!detail && sectionView();
+    updateDetail();
+    updateClipping();
+    renderer.shadowMap.needsUpdate=true;
     const isInterior=name==='interior';
     controls.maxDistance=isInterior ? 28 : 790;
     controls.minDistance=isInterior ? 1.3 : 9;
     tunnelLighting.visible=isInterior;
     ambient.intensity=isInterior ? .58 : 1.44;
     const fieldOfView=isInterior ? 58 : 45;
-    useCamera(fromBlender(pose.position),fromBlender(pose.target),pose.fov || fieldOfView);
+    const target=fromBlender(pose.target), eye=fromBlender(pose.position);
+    if(sectionView() && width && height) {
+      const distance=Math.max(1,1.55*height/width);
+      eye.sub(target).multiplyScalar(distance).add(target);
+    }
+    useCamera(eye,target,pose.fov || fieldOfView);
     callbacks.onView?.(name);
   }
 
@@ -284,7 +507,7 @@ export async function createSonglan(canvasHost,overlay,root) {
     if (!device) return;
     selected=id;
     if (focus) {
-      if (device.eventId==='lights') {
+      if (site ? device.inside : device.kind==='luminaire') {
         setView('interior');
         const target=fromBlender(device.position);
         useCamera(target.clone().add(new THREE.Vector3(-9,-2.8,-1.8)),target,55);
@@ -305,7 +528,19 @@ export async function createSonglan(canvasHost,overlay,root) {
     const bounds=renderer.domElement.getBoundingClientRect();
     cursor.set((event.clientX-bounds.left)/bounds.width*2-1,1-(event.clientY-bounds.top)/bounds.height*2);
     raycaster.setFromCamera(cursor,camera);
-    const nearest=raycaster.intersectObject(engineering.scene,true)[0];
+    if (detail && (sectionView() || view==='interior')) {
+      const hit=raycaster.intersectObjects(detail.pickables,false).find(h=>h.object.visible);
+      if (hit) {
+        const item=hit.object.userData;
+        if (devices.has(item.code)) select(item.code,false);
+        else if (item.name) callbacks.onInspect?.(item);
+        return;
+      }
+    }
+    const nearest=raycaster.intersectObject(engineering.scene,true).find(hit=>{
+      for (let object=hit.object;object;object=object.parent) if (!object.visible) return false;
+      return true;
+    });
     for (let node=nearest?.object;node;node=node.parent) {
       const id=node.userData.assetId;
       if (devices.has(id)) {
@@ -318,62 +553,22 @@ export async function createSonglan(canvasHost,overlay,root) {
   renderer.domElement.addEventListener('pointerdown',event=>{pointerDown={x:event.clientX,y:event.clientY};});
   renderer.domElement.addEventListener('pointerup',pick);
   controls.addEventListener('change',redraw);
-  new ResizeObserver(size).observe(canvasHost);
+  controls.addEventListener('start',()=>{lastInteraction=Infinity;});
+  controls.addEventListener('end',()=>{lastInteraction=performance.now();});
+  const observer=new ResizeObserver(size);
+  observer.observe(canvasHost);
   document.addEventListener('visibilitychange',redraw);
   reducedMotion.addEventListener('change',redraw);
-
-  const terrainStatus = document.createElement('div');
-  terrainStatus.className = 'terrain-status';
-  terrainStatus.setAttribute('role','status');
-  canvasHost.appendChild(terrainStatus);
-  async function loadTerrain() {
-    terrainStatus.textContent = '正在补载地形细节';
-    try {
-      const valley = await loadModel('songlan-valley.glb', 30000);
-      let waterMesh;
-      valley.scene.traverse(node=>{
-        if (!node.isMesh) return;
-        const materials=Array.isArray(node.material)?node.material:[node.material];
-        if (/songlanwater/i.test(node.name) || materials.some(material=>/songlanwater/i.test(material.name))) {
-          waterMesh=node;
-        } else node.receiveShadow=true;
-      });
-      scene.add(valley.scene);
-      scene.remove(preview);
-      preview.geometry.dispose();
-      preview.material.dispose();
-      renderer.shadowMap.needsUpdate=true;
-      terrainStatus.hidden=true;
-      root.dataset.terrainReady='true';
-      redraw();
-      if (waterMesh) {
-        const flowMap = await new THREE.TextureLoader().loadAsync(assetRoot+'songlan-water-normal.png');
-        flowMap.wrapS=flowMap.wrapT=THREE.RepeatWrapping;
-        water=riverMaterial(flowMap);
-        water.uniforms.lightTheme.value=lightTheme ? 1 : 0;
-        waterMesh.material=water;
-        redraw();
-      }
-    } catch (error) {
-      if (terrainStatus.hidden) return; // The terrain can render with its original water material.
-      terrainStatus.textContent = '地形细节暂未加载。';
-      const retry=document.createElement('button');
-      retry.className='scene-retry';
-      retry.textContent='重试';
-      retry.onclick=loadTerrain;
-      terrainStatus.append(' ',retry);
-      console.warn(error.message);
-    }
-  }
-  loadTerrain();
 
   return {
     show(state,handlers,startOverview) {
       callbacks=handlers;
+      if (!site) loadTerrain();
       visible=true;
       labelEnabled=state.labelEnabled;
+      updateDetail();
       closed=Boolean(state.cases.lights?.closed);
-      if (workingLed) for (const {node,off} of lampMeshes) node.material=closed ? workingLed : off;
+      if (workingLed) for (const {node,off,device} of lampMeshes) node.material=(site ? !device.warning : closed) ? workingLed : off;
       const light=state.theme==='light';
       if (light!==lightTheme || startOverview) {
         lightTheme=light;
@@ -381,8 +576,8 @@ export async function createSonglan(canvasHost,overlay,root) {
         sunlight.intensity=light ? 2.5 : 2.3;
         if (water) water.uniforms.lightTheme.value=light ? 1 : 0;
       }
-      portalTag.classList.toggle('warning',!closed);
-      portalTag.setAttribute('aria-label',closed?'松岚隧道 · 已核验':'地图告警 照明回路无反馈');
+      portalTag.classList.toggle('warning',site ? Boolean(site.eventId) : !closed);
+      portalTag.setAttribute('aria-label',site ? portalLabel : closed?'松岚隧道 · 已核验':'地图告警 照明回路无反馈');
       size();
       if (startOverview) {
         selected=null;
@@ -401,8 +596,37 @@ export async function createSonglan(canvasHost,overlay,root) {
       if (pending) cancelAnimationFrame(pending);
       pending=0;
     },
+    dispose() {
+      this.hide();
+      disposed=true; terrainRequest.abort();
+      observer.disconnect();
+      document.removeEventListener('visibilitychange',redraw);
+      reducedMotion.removeEventListener('change',redraw);
+      renderer.domElement.removeEventListener('pointerup',pick);
+      controls.dispose();
+      const resources=new Set([flowMap,originalWater].flat().filter(Boolean));
+      for(const section of groundSections) {resources.add(section.whole);resources.add(section.excavated);}
+      disposeMeshes(scene,resources);
+      sunlight.shadow.dispose();
+      renderer.dispose();
+      renderer.forceContextLoss();
+      canvasHost.replaceChildren();
+      overlay.replaceChildren();
+    },
     setView,select,
-    setLabels(value) {labelEnabled=value;redraw();},
+    setCruise(value) {cruising=Boolean(value); if (cruising && !sectionView()) setView('cutaway'); redraw();},
+    setEnvironment(value) {
+      landscape.visible=Boolean(value);
+      if (!value) terrainStatus.hidden=true;
+      else if (terrainLoading) terrainStatus.hidden=false;
+      else loadTerrain();
+      scene.background.set(value ? 0xb8cade : 0x0a1424);
+      scene.fog.density=value ? .00094 : 0;
+      updateDetail();
+      renderer.shadowMap.needsUpdate=true;
+      redraw();
+    },
+    setLabels(value) {labelEnabled=value;updateDetail();redraw();},
     zoom(factor) {
       const offset=camera.position.clone().sub(controls.target);
       const distance=THREE.MathUtils.clamp(offset.length()*(factor>0?.81:1.24),controls.minDistance,controls.maxDistance);

@@ -9,6 +9,80 @@
   const instances = [];
   const KM2X = km => (km - 29) * 10;
   const centerZ = x => 16 * Math.sin(x * 0.011) + 6 * Math.sin(x * 0.027 + 1.3);
+  const riverZ = x => 44 * Math.sin(x * .016 + .5) + 23 * Math.sin(x * .029);
+  const riverWidth = x => 9 + 3 * Math.cos(x * .023);
+  const tunnelRidges = D.TUNNELS.map(t => ({
+    x: KM2X((t.start + t.end) / 2), halfLength: (KM2X(t.end) - KM2X(t.start)) / 2
+  }));
+
+  // Build the landscape in the road's chainage coordinates so all asset anchors stay fixed.
+  function landHeight(x, z) {
+    const offset = z - centerZ(x);
+    const foothills = THREE.MathUtils.smoothstep(Math.abs(offset), 26, 90);
+    const crest = 1 - Math.abs(Math.sin(z * .032 + Math.sin(x * .024) + .36 * Math.sin(z * .061 - x * .037) + x * .008));
+    const relief = 29 + 19 * Math.sin(x * .026 - z * .018) + 30 * crest;
+    const detail = 4 * Math.sin(x * .13 + z * .07) + 2 * Math.cos(z * .21 - x * .15);
+    let height = -.45 + foothills * (relief + detail);
+    for (const ridge of tunnelRidges) {
+      const dx = (x - ridge.x) / ridge.halfLength;
+      const dz = (offset + 5) / 24;
+      height += 30 * Math.max(0, 1 - dx * dx - dz * dz);
+    }
+    const bank = THREE.MathUtils.smoothstep(Math.abs(z - riverZ(x)), riverWidth(x) - 2, riverWidth(x) + 6);
+    return -4 + (height + 4) * bank;
+  }
+
+  function makeRouteLandscape() {
+    const group = new THREE.Group();
+    const ground = new THREE.PlaneGeometry(1180, 670, 384, 216);
+    ground.rotateX(-Math.PI / 2);
+    const pos = ground.attributes.position;
+    for (let i = 0; i < pos.count; i++) pos.setY(i, landHeight(pos.getX(i), pos.getZ(i)));
+    ground.computeVertexNormals();
+    const grass = new THREE.Color(0x617a49).convertSRGBToLinear();
+    const rock = new THREE.Color(0xa29a85).convertSRGBToLinear();
+    const shore = new THREE.Color(0x9c906f).convertSRGBToLinear();
+    const tint = new THREE.Color(), colors = [];
+    for (let i = 0; i < pos.count; i++) {
+      const x = pos.getX(i), z = pos.getZ(i), h = pos.getY(i);
+      const slope = 1 - ground.attributes.normal.getY(i);
+      const stone = THREE.MathUtils.smoothstep(slope + h * .003, .19, .55);
+      tint.copy(grass).lerp(rock, stone);
+      if (h < -.5) tint.lerp(shore, .8);
+      tint.multiplyScalar(.93 + .08 * Math.sin(x * .4 + z * .27) + .08 * Math.cos(z * .09 - x * .17));
+      colors.push(tint.r, tint.g, tint.b);
+    }
+    ground.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+    const loader = new THREE.TextureLoader();
+    function tileTexture(file, along, across) {
+      const texture = loader.load('assets/3d/' + file);
+      texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+      texture.repeat.set(along, across);
+      return texture;
+    }
+    group.add(new THREE.Mesh(ground, new THREE.MeshStandardMaterial({
+      vertexColors:true, roughness:.94, map:tileTexture('network-slope-detail.png', 25, 14),
+      normalMap:tileTexture('network-rock-normal.png', 50, 28), normalScale:new THREE.Vector2(.65,.65)
+    })));
+    // A river ribbon follows the channel, including the crossings beneath the viaduct.
+    const water = new THREE.PlaneGeometry(1180, 2, 384, 1);
+    water.rotateX(-Math.PI / 2);
+    const wp = water.attributes.position;
+    for (let i = 0; i < wp.count; i++) {
+      const x = wp.getX(i);
+      wp.setXYZ(i, x, -.85, riverZ(x) + wp.getZ(i) * (riverWidth(x) + 6));
+    }
+    group.add(new THREE.Mesh(water, new THREE.MeshStandardMaterial({
+      color:new THREE.Color(0x37686c).convertSRGBToLinear(), roughness:.36, metalness:.18,
+      normalMap:tileTexture('songlan-water-normal.png', 52, 1), normalScale:new THREE.Vector2(.65,.65)
+    })));
+    return group;
+  }
+
+  function macroOverviewRadius(aspect) {
+    // Reserve room for both endpoints at the default oblique camera angle.
+    return Math.max(330, 305 * Math.cos(.5) / (Math.tan(25 * Math.PI / 180) * aspect * .92) + 130);
+  }
 
   /* 重点路段（可下钻的道路孪生场景） */
   const ROAD_SCENES = [
@@ -17,7 +91,7 @@
     { id: 'RS-NL', name: '南岭隧道外路段', km: 30.6, desc: '长下坡衔接段 · 气象检测/摄像机' }
   ];
 
-  function labelTexture(text, color, sub) {
+  function labelTexture(text, color, sub, three = window.THREE) {
     const c = document.createElement('canvas');
     const ctx = c.getContext('2d');
     const fs = 30;
@@ -32,8 +106,8 @@
     g.fillStyle = '#eaf2fc'; g.textBaseline = 'middle';
     g.fillText(text, 18, sub ? 26 : c.height / 2);
     if (sub) { g.font = '20px "Microsoft YaHei"'; g.fillStyle = color; g.fillText(sub, 18, 60); }
-    const t = new THREE.CanvasTexture(c);
-    t.minFilter = THREE.LinearFilter;
+    const t = new three.CanvasTexture(c);
+    t.minFilter = three.LinearFilter;
     return { tex: t, aspect: c.width / c.height };
   }
   function markerTexture(color, ring) {
@@ -103,9 +177,9 @@
       const M = this.mode;
       this.target = new THREE.Vector3(0, M === 'macro' ? 4 : M === 'room' ? 1.3 : 0, M === 'room' ? -4 : 0);
       this.targetGoal = this.target.clone();
-      const preset = M === 'macro' ? { r: 330, theta: 0.5, phi: 0.94 } : M === 'road' ? { r: 120, theta: 0.35, phi: 1.12 } : M === 'room' ? { r: 16, theta: 0.02, phi: 1.5 } : { r: 120, theta: 0.85, phi: 1.05 };
+      const preset = M === 'macro' ? { r: macroOverviewRadius(this.camera.aspect), theta: 0.5, phi: 0.94 } : M === 'road' ? { r: 120, theta: 0.35, phi: 1.12 } : M === 'room' ? { r: 16, theta: 0.02, phi: 1.5 } : { r: 120, theta: 0.85, phi: 1.05 };
       this.sph = Object.assign({}, preset); this.goal = Object.assign({}, preset);
-      this.rMin = M === 'macro' ? 40 : M === 'room' ? 6 : 14; this.rMax = M === 'macro' ? 720 : M === 'room' ? 140 : 300;
+      this.rMin = M === 'macro' ? 40 : M === 'room' ? 6 : 14; this.rMax = M === 'macro' ? Math.max(720, preset.r * 1.2) : M === 'room' ? 140 : 300;
       this.buildLights();
       if (M === 'macro') this.buildMacro(); else if (M === 'road') this.buildRoad(); else if (M === 'room') this.buildRoom(); else this.buildTunnel();
       this.applyTime();
@@ -127,11 +201,11 @@
       const day = this.time === 'day';
       const M = this.mode;
       if (M === 'macro') {
-        this.scene.background = new THREE.Color(day ? 0x9fc4e0 : 0x060f22);
-        this.hemi.intensity = day ? 0.95 : 0.25;
+        this.scene.background = new THREE.Color(day ? (this.routeLandscape?.visible ? 0xbacbd9 : 0xc5cfda) : 0x060f22);
+        this.hemi.intensity = day ? 0.7 : 0.25;
         this.hemi.color.set(day ? 0xbfd9ff : 0x2a4a7c);
         this.hemi.groundColor.set(day ? 0x8a7a5a : 0x0a1424);
-        this.sun.intensity = day ? 1.3 : 0.18;
+        this.sun.intensity = day ? .95 : 0.18;
         this.sun.color.set(day ? 0xfff0d0 : 0x8fb4ff);
         this.rim.intensity = day ? 0.35 : 0.5;
         this.amb.intensity = day ? 0.5 : 0.4;
@@ -170,7 +244,8 @@
       this.scene.fog = new THREE.Fog(col.getHex(), base[0] * f, base[1] * f);
     }
     addLabel(text, color, sub, x, y, z, scale) {
-      const lb = labelTexture(text, color, sub);
+      const THREE = this.three || window.THREE;
+      const lb = labelTexture(text, color, sub, THREE);
       const spr = new THREE.Sprite(new THREE.SpriteMaterial({ map: lb.tex, transparent: true, depthTest: false }));
       spr.scale.set(lb.aspect * scale, scale, 1);
       spr.position.set(x, y, z);
@@ -193,31 +268,14 @@
     buildMacro() {
       const S = this.scene;
       const r = D.rng('macro-env');
-      // 地形（顶点着色：农田/绿地/水体）
-      const tg = new THREE.PlaneGeometry(820, 400, 110, 54);
-      tg.rotateX(-Math.PI / 2);
-      const pos = tg.attributes.position;
-      const colors = [];
-      const cField = new THREE.Color(0xb9a06a), cGrass = new THREE.Color(0x6f8f5a), cWater = new THREE.Color(0x2e8f86), cUrban = new THREE.Color(0x9a9a92);
-      for (let i = 0; i < pos.count; i++) {
-        const x = pos.getX(i), z = pos.getZ(i);
-        const dist = Math.abs(z - centerZ(x));
-        let h = Math.sin(x * 0.02 + 2) * Math.cos(z * 0.03) * 7 + Math.sin(x * 0.05) * 3;
-        h = Math.max(0, h) * Math.min(1, Math.max(0, (dist - 20) / 46));
-        pos.setY(i, h - 0.4);
-        let c;
-        if (z > 55 && x > -60) c = cWater;                       // 右侧水塘
-        else if (z < -60 && x < 120) c = cUrban;                // 左上城区
-        else c = (Math.sin(x * 0.09) * Math.cos(z * 0.11) > 0.1) ? cField : cGrass;
-        const v = 0.9 + r() * 0.2;
-        colors.push(c.r * v, c.g * v, c.b * v);
-      }
-      tg.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
-      tg.computeVertexNormals();
-      S.add(new THREE.Mesh(tg, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, flatShading: true })));
-      // 水面光泽
-      const water = new THREE.Mesh(new THREE.PlaneGeometry(300, 120), new THREE.MeshStandardMaterial({ color: 0x2e9f92, roughness: 0.25, metalness: 0.35, transparent: true, opacity: 0.9 }));
-      water.rotation.x = -Math.PI / 2; water.position.set(120, 0.05, 105); S.add(water);
+      this.routeLandscape = makeRouteLandscape();
+      S.add(this.routeLandscape);
+      this.routeGrid = new THREE.GridHelper(920, 92, 0x71869a, 0x99adbb);
+      this.routeGrid.material.transparent = true;
+      this.routeGrid.material.opacity = .42;
+      this.routeGrid.position.y = -.5;
+      S.add(this.routeGrid);
+      this.setRouteTerrain(this.opts.terrain !== false);
       // 星空（夜）
       const starGeo = new THREE.BufferGeometry(); const sp = [];
       const rs = D.rng('stars');
@@ -227,53 +285,61 @@
       S.add(this.starPoints);
       // 城区高层（实例化）+ 窗光
       const hiGeo = geo('hi', () => new THREE.BoxGeometry(10, 1, 10));
-      const hiMat = new THREE.MeshStandardMaterial({ color: 0xb9bcc4, roughness: 0.8 });
-      const hiCount = 60;
+      const hiMat = new THREE.MeshStandardMaterial({ color: new THREE.Color(0x8f9194).convertSRGBToLinear(), roughness: 0.8 });
+      const hiCount = 18;
       const hi = new THREE.InstancedMesh(hiGeo, hiMat, hiCount);
       const winGeo = geo('win', () => new THREE.BoxGeometry(10.3, 1, 10.3));
       const winMat = new THREE.MeshBasicMaterial({ color: 0xffd9a0, transparent: true, opacity: 0.85 });
       const win = new THREE.InstancedMesh(winGeo, winMat, hiCount);
       const m4 = new THREE.Matrix4(); const q = new THREE.Quaternion(); const sc = new THREE.Vector3(); const pv = new THREE.Vector3();
       for (let i = 0; i < hiCount; i++) {
-        const x = -260 + r() * 300, z = -90 - r() * 90;
-        const h = 24 + r() * 40;
-        pv.set(x, h / 2, z); sc.set(1, h, 1); q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), r() * 0.4);
+        const x = -246 + r() * 88, z = centerZ(x) - 30 - r() * 7;
+        if (landHeight(x,z) < -.6) { i--; continue; }
+        const h = 8 + r() * 15, base = landHeight(x,z) - 1.5;
+        pv.set(x, base + h / 2, z); sc.set(.65, h, .65); q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), r() * 0.4);
         m4.compose(pv, q, sc); hi.setMatrixAt(i, m4);
-        pv.set(x, h * 0.55, z); sc.set(1, h * 0.5, 1); m4.compose(pv, q, sc); win.setMatrixAt(i, m4);
+        pv.set(x, base + h * .55, z); sc.set(.65, h * .5, .65); m4.compose(pv, q, sc); win.setMatrixAt(i, m4);
       }
-      S.add(hi); this.windowMesh = win; S.add(win);
+      this.routeLandscape.add(hi, win); this.windowMesh = win;
       // 民居（白墙蓝顶，实例化两层）
       const houseGeo = geo('house', () => new THREE.BoxGeometry(7, 5, 7));
-      const houseMat = new THREE.MeshStandardMaterial({ color: 0xe8e6df, roughness: 0.85 });
+      const houseMat = new THREE.MeshStandardMaterial({ color: new THREE.Color(0xa49d8e).convertSRGBToLinear(), roughness: 0.85 });
       const roofGeo = geo('roof', () => new THREE.ConeGeometry(5.4, 3, 4));
-      const roofMat = new THREE.MeshStandardMaterial({ color: 0x3f6fae, roughness: 0.7, flatShading: true });
-      const hn = 90;
+      const roofMat = new THREE.MeshStandardMaterial({ color: new THREE.Color(0x556675).convertSRGBToLinear(), roughness: 0.7, flatShading: true });
+      const hn = 36;
       const houses = new THREE.InstancedMesh(houseGeo, houseMat, hn);
       const roofs = new THREE.InstancedMesh(roofGeo, roofMat, hn);
       for (let i = 0; i < hn; i++) {
         const side = r() > 0.5 ? 1 : -1;
-        const x = -280 + r() * 560, z = centerZ(x) + side * (26 + r() * 40);
-        pv.set(x, 2.5, z); sc.set(1, 1, 1); q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), r() * Math.PI);
+        const x = -280 + r() * 560, z = centerZ(x) + side * (26 + r() * 14);
+        const base = landHeight(x,z);
+        if (base < -.6) { i--; continue; }
+        pv.set(x, base + 2.1, z); sc.set(1, 1, 1); q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), r() * Math.PI);
         m4.compose(pv, q, sc); houses.setMatrixAt(i, m4);
-        pv.set(x, 6.4, z); m4.compose(pv, q, sc); roofs.setMatrixAt(i, m4);
+        pv.set(x, base + 6, z); m4.compose(pv, q, sc); roofs.setMatrixAt(i, m4);
       }
-      S.add(houses); S.add(roofs);
+      this.routeLandscape.add(houses, roofs);
       // 树木（实例化：树干+冠）
       const trunkGeo = geo('trunk', () => new THREE.CylinderGeometry(0.35, 0.5, 3, 5));
       const trunkMat = new THREE.MeshStandardMaterial({ color: 0x6b4a2f, roughness: 1 });
-      const canopyGeo = geo('canopy', () => new THREE.ConeGeometry(2.6, 6, 7));
-      const canopyMat = new THREE.MeshStandardMaterial({ color: 0x3f7a3a, roughness: 1, flatShading: true });
-      const tn = 220;
+      const canopyGeo = geo('macro-crown', () => new THREE.IcosahedronGeometry(1, 0));
+      const canopyMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 1, flatShading: true });
+      const tn = 1050;
       const trunks = new THREE.InstancedMesh(trunkGeo, trunkMat, tn);
       const canopies = new THREE.InstancedMesh(canopyGeo, canopyMat, tn);
       for (let i = 0; i < tn; i++) {
         const x = -290 + r() * 580, side = r() > 0.5 ? 1 : -1;
-        const z = centerZ(x) + side * (14 + r() * 70);
+        const z = centerZ(x) + side * (28 + r() * 150);
+        const base = landHeight(x,z);
+        if (base < -.6) { i--; continue; }
         const s = 0.7 + r() * 0.8;
-        pv.set(x, 1.5 * s, z); sc.set(s, s, s); q.identity(); m4.compose(pv, q, sc); trunks.setMatrixAt(i, m4);
-        pv.set(x, (3 + 3) * s, z); m4.compose(pv, q, sc); canopies.setMatrixAt(i, m4);
+        pv.set(x, base + 1.5 * s, z); sc.set(s, s, s); q.identity(); m4.compose(pv, q, sc); trunks.setMatrixAt(i, m4);
+        pv.set(x, base + 4 * s, z); sc.set(2.1*s, 3.7*s, 2.3*s);
+        q.setFromAxisAngle(new THREE.Vector3(0,1,0), r()*Math.PI);
+        m4.compose(pv, q, sc); canopies.setMatrixAt(i, m4);
+        canopies.setColorAt(i, new THREE.Color().setHSL(.22+r()*.07,.25+r()*.12,.16+r()*.10).convertSRGBToLinear());
       }
-      S.add(trunks); S.add(canopies);
+      this.routeLandscape.add(trunks, canopies);
       // 高架桥面（沿中心线，高 y=8）+ 桥墩
       const deckPts = [], deckIdx = []; const N = 160;
       for (let i = 0; i <= N; i++) {
@@ -284,7 +350,12 @@
       const dg = new THREE.BufferGeometry();
       dg.setAttribute('position', new THREE.Float32BufferAttribute(deckPts, 3));
       dg.setIndex(deckIdx); dg.computeVertexNormals();
-      S.add(new THREE.Mesh(dg, new THREE.MeshStandardMaterial({ color: 0x8f9298, roughness: 0.9 })));
+      S.add(new THREE.Mesh(dg, new THREE.MeshStandardMaterial({ color: new THREE.Color(0x4a4b4b).convertSRGBToLinear(), roughness: 0.9 })));
+      const laneMarks = [];
+      for (let x = -290; x < 290; x += 6) {
+        for (const offset of [-2.4,2.4]) laneMarks.push(new THREE.Vector3(x,8.08,centerZ(x)+offset), new THREE.Vector3(x+3,8.08,centerZ(x+3)+offset));
+      }
+      S.add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(laneMarks), new THREE.LineBasicMaterial({color:0xc6c6bc})));
       // 桥面护栏
       [-5, 5].forEach(off => {
         const bp = [];
@@ -321,16 +392,6 @@
       D.TUNNELS.forEach(t => {
         const cx = KM2X((t.start + t.end) / 2), cz = centerZ(cx);
         const len = (t.end - t.start) * 10;
-        const rr = D.rng('mt' + t.id);
-        for (let i = 0; i < 6; i++) {
-          const mx = cx + (i - 2.5) * len * 0.2, mz = cz + (rr() - 0.5) * 12;
-          const h = 26 + rr() * 18, rad = 18 + rr() * 12;
-          const cone = new THREE.Mesh(geo('mt', () => new THREE.ConeGeometry(1, 1, 7)), new THREE.MeshStandardMaterial({ color: 0x5f7a52, flatShading: true, roughness: 1 }));
-          cone.scale.set(rad, h, rad);
-          cone.position.set(mx, h / 2 - 1, mz);
-          cone.rotation.y = rr() * Math.PI;
-          S.add(cone);
-        }
         [t.start, t.end].forEach(km => {
           const x = KM2X(km), z = centerZ(x);
           const ring = new THREE.Mesh(new THREE.TorusGeometry(5.2, 0.6, 8, 24, Math.PI), new THREE.MeshBasicMaterial({ color: t.hero ? 0x4fd8f0 : 0x2f7bff }));
@@ -386,7 +447,7 @@
         if (rm.id === 'MR-01') this.addPulse(x, 0.2, z, 0x19e3ff, 5);
       });
       // 桩号
-      for (let km = 0; km <= 58; km += 10) {
+      for (const km of [0, 10, 20, 30, 40, 50, D.ROAD.end]) {
         const x = KM2X(km), z = centerZ(x);
         this.addLabel(D.kmText(km), '#5a7ba6', null, x, 1.5, z + 24, 4);
       }
@@ -410,7 +471,7 @@
       });
       // 事件光柱
       this.eventGroup = new THREE.Group(); S.add(this.eventGroup);
-      D.events.filter(e => e.level === '严重').forEach((e, i) => {
+      D.events.filter(D.isOpenMajor).forEach((e, i) => {
         const x = KM2X(e.km), z = centerZ(x) + (i ? 9 : -9);
         const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.8, 1.6, 42, 10, 1, true), new THREE.MeshBasicMaterial({ color: 0xef4444, transparent: true, opacity: 0.35, side: THREE.DoubleSide, depthWrite: false }));
         beam.position.set(x, 29, z); this.eventGroup.add(beam);
@@ -588,13 +649,20 @@
 
     /* ================= 隧道孪生（洞内机电） ================= */
     buildTunnel() {
+      const THREE = this.three || window.THREE;
+      const geometry = this.three ? this.sharedGeometry : geo;
       const S = this.scene;
       const L = 180;
       const t = D.TUNNELS.find(x => x.id === this.sceneKey) || D.TUNNELS[0];
+      const qingling = t.id === 'QL';
+      const lightingEvent = D.events.find(e => e.id === 'EV-1123-02');
+      const zoneFault = qingling && lightingEvent && D.isOpenMajor(lightingEvent);
+      this.tunnelFocus = new Map();
       const ground = new THREE.Mesh(new THREE.PlaneGeometry(400, 220), new THREE.MeshStandardMaterial({ color: 0x0a1424, roughness: 1 }));
       ground.rotation.x = -Math.PI / 2; ground.position.y = -5.6; S.add(ground);
       const grid = new THREE.GridHelper(400, 40, 0x14335c, 0x0e2544);
       grid.position.y = -5.5; grid.material.transparent = true; grid.material.opacity = 0.4; S.add(grid);
+      this.draftingSurface = [ground, grid];
       // 混凝土衬砌壳体（上半圆筒）
       const shell = new THREE.Mesh(new THREE.CylinderGeometry(10, 10, L, 32, 1, true, 0, Math.PI), new THREE.MeshStandardMaterial({ color: 0x8f9298, roughness: 0.9, side: THREE.BackSide }));
       shell.rotation.z = Math.PI / 2; shell.position.y = -1.5; S.add(shell);
@@ -618,7 +686,7 @@
         const edge = new THREE.Mesh(new THREE.BoxGeometry(L, 0.12, 0.15), new THREE.MeshBasicMaterial({ color: 0x00b8d9 }));
         edge.position.set(0, -3.5, z + (z > 0 ? -0.9 : 0.9)); S.add(edge);
       });
-      const dashGeo = geo('tdash', () => new THREE.BoxGeometry(3, 0.06, 0.22));
+      const dashGeo = geometry('tdash', () => new THREE.BoxGeometry(3, 0.06, 0.22));
       const dashes = new THREE.InstancedMesh(dashGeo, new THREE.MeshBasicMaterial({ color: 0xe8eef5, transparent: true, opacity: 0.8 }), 30);
       const m4 = new THREE.Matrix4();
       for (let i = 0; i < 30; i++) { m4.makeTranslation(-L / 2 + 3 + i * 6, -4.25, 0); dashes.setMatrixAt(i, m4); }
@@ -634,13 +702,15 @@
       const lightGrp = new THREE.Group(); S.add(lightGrp); this.equipGroups.light = lightGrp;
       zones.forEach((z, i) => {
         const x0 = -L / 2 + i * 30 + 15;
-        const bad = z === 'Z-03';
+        const bad = zoneFault && z === 'Z-03';
+        const zoneSelection = { kind: qingling ? 'zone' : 'schematic', code: z, name: z + ' 照明分区（' + zoneNames[i] + '）' };
+        this.tunnelFocus.set(z, x0);
         const stripMat = new THREE.MeshStandardMaterial({ color: bad ? 0x3a2a2a : 0xfff2d8, emissive: bad ? 0x220000 : 0xffd28a, emissiveIntensity: bad ? 0.15 : (i < 2 ? 1.5 : i === 2 ? 1.1 : 0.9) });
         const grp = new THREE.Group();
         [-6.2, 6.2].forEach(zz => {
           const strip = new THREE.Mesh(new THREE.BoxGeometry(26, 0.35, 0.7), stripMat);
           strip.position.set(x0, 4.6, zz); strip.rotation.x = zz > 0 ? -0.35 : 0.35;
-          strip.userData = { kind: 'zone', code: z, name: z + ' 照明分区（' + zoneNames[i] + '）' };
+          strip.userData = zoneSelection;
           grp.add(strip); this.pickables.push(strip);
         });
         if (!bad) {
@@ -656,8 +726,8 @@
           const pl = new THREE.PointLight(0xff3030, 0.5, 26); pl.position.set(x0, 2, 0); grp.add(pl);
         }
         lightGrp.add(grp); this.zoneMeshes[z] = grp;
-        const spr = this.addLabel(z + ' ' + zoneNames[i], bad ? '#ff9d9d' : '#ffd28a', bad ? '⚠ 18盏灯具异常' : '照明正常', x0, 12.5, 0, 5.4);
-        spr.userData = { kind: 'zone', code: z, name: z + ' 照明分区' }; this.pickables.push(spr);
+        const spr = this.addLabel(z + ' ' + zoneNames[i], bad ? '#ff9d9d' : '#ffd28a', bad ? '⚠ 18盏灯具异常' : qingling ? '照明正常' : '分区示意', x0, 12.5, 0, 5.4);
+        spr.userData = zoneSelection; this.pickables.push(spr);
       });
       // 射流风机
       const fanGrp = new THREE.Group(); S.add(fanGrp); this.equipGroups.fan = fanGrp;
@@ -671,56 +741,67 @@
         const ring2 = ring1.clone(); ring2.position.x = -3; grp.add(ring2);
         const blades = new THREE.Group();
         for (let b = 0; b < 4; b++) {
-          const bl = new THREE.Mesh(new THREE.BoxGeometry(0.25, 2.9, 0.7), new THREE.MeshStandardMaterial({ color: 0x9fc4e8, roughness: 0.4 }));
-          bl.geometry = geo('blade', () => { const g = new THREE.BoxGeometry(0.25, 2.9, 0.7); g.translate(0, 1.45, 0); return g; });
+          const bladeGeometry = geometry('blade', () => { const g = new THREE.BoxGeometry(0.25, 2.9, 0.7); g.translate(0, 1.45, 0); return g; });
+          const bl = new THREE.Mesh(bladeGeometry, new THREE.MeshStandardMaterial({ color: 0x9fc4e8, roughness: 0.4 }));
           const pivot = new THREE.Group(); pivot.add(bl); pivot.rotation.x = b * Math.PI / 2; blades.add(pivot);
         }
         grp.add(blades);
         this.spinners.push({ obj: blades, speed: 5 + i * 0.4 });
         grp.position.set(x, 6.2, i % 2 ? 2.6 : -2.6);
-        grp.userData = { kind: 'fan', code: 'JF-0' + (i + 1), name: '射流风机 JF-0' + (i + 1) };
+        const fanCode = 'JF-0' + (i + 1);
+        grp.userData = qingling ? { kind: 'fan', code: fanCode, name: '射流风机 ' + fanCode } : { kind: 'schematic', name: '射流风机示意' };
+        if (qingling) this.tunnelFocus.set(fanCode, x);
         fanGrp.add(grp);
         grp.traverse(o => { if (o.isMesh) { o.userData = grp.userData; this.pickables.push(o); } });
-        this.addLabel('JF-0' + (i + 1), '#4fd8f0', '运行 · 30kW', x, 10.2, grp.position.z, 3.6);
+        const fanLabel = this.addLabel(qingling ? fanCode : '射流风机', '#4fd8f0', qingling ? '运行 · 30kW' : '设备示意', x, 10.2, grp.position.z, 3.6);
+        fanLabel.userData = grp.userData; this.pickables.push(fanLabel);
       }
-      // 摄像机（离线）
+      // 按当前隧道的台账状态绘制摄像机，恢复后取消故障标记。
       const camGrp = new THREE.Group(); S.add(camGrp); this.equipGroups.cam = camGrp;
-      for (let i = 0; i < 4; i++) {
+      const cameras = D.devices.filter(d => d.tunnel === t.name && d.type.includes('摄像机')).slice(0, 4);
+      cameras.forEach((device, i) => {
         const x = -52 + i * 12;
         const cam = new THREE.Group();
         const body = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.9, 0.9), new THREE.MeshStandardMaterial({ color: 0x55606e }));
         cam.add(body);
-        const lens = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.45, 0.5, 10), new THREE.MeshBasicMaterial({ color: 0xef4444 }));
+        const lensColor = device.status === 'offline' ? 0xef4444 : device.status === 'warn' ? 0xf59e0b : 0x16a34a;
+        const lens = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.45, 0.5, 10), new THREE.MeshBasicMaterial({ color: lensColor }));
         lens.rotation.z = Math.PI / 2; lens.position.x = 1; cam.add(lens);
         cam.position.set(x, 3.4, -7.6);
-        cam.userData = { kind: 'device', code: 'CAM-0' + (i + 1), name: '摄像机 CAM-0' + (i + 1) + '（离线）' };
+        cam.userData = { kind: 'device', code: device.code, name: device.name + ' ' + device.code + '（' + D.STATUS[device.status].name + '）' };
+        this.tunnelFocus.set(device.code, x);
         camGrp.add(cam);
         cam.traverse(o => { if (o.isMesh) { o.userData = cam.userData; this.pickables.push(o); } });
-        this.pulses.push({ mesh: lens, t: i * 0.4, base: 1, blink: true });
-      }
+        if (device.status !== 'online') this.pulses.push({ mesh: lens, t: i * 0.4, base: 1, blink: true });
+      });
       // 配电/控制/检测硐室
       const powGrp = new THREE.Group(); S.add(powGrp); this.equipGroups.power = powGrp;
       const cabs = [
-        { code: 'CAB-03', name: '外场机柜 CAB-03', x: -46, color: 0xf59e0b },
-        { code: 'SW-12', name: '接入交换机 SW-12', x: -42, color: 0xef4444 },
-        { code: 'PDB-02', name: '照明配电柜 PDB-02', x: -8, color: 0xf59e0b },
-        { code: 'LC-01', name: '照明控制器 LC-01', x: -4, color: 0x4fd8f0 },
-        { code: 'COVI-01', name: 'CO/VI检测器', x: 20, color: 0x10b981 }
+        { code: 'CAB-03', name: '外场机柜 CAB-03', x: -46 },
+        { code: 'SW-12', name: '接入交换机 SW-12', x: -42 },
+        { code: 'PDB-02', name: '照明配电柜 PDB-02', x: -8 },
+        { code: 'LC-01', name: '照明控制器 LC-01', x: -4 },
+        { code: 'COVI-01', name: 'CO/VI检测器', x: 20 }
       ];
       cabs.forEach(c => {
         const box = new THREE.Mesh(new THREE.BoxGeometry(2.2, 3.4, 1.4), new THREE.MeshStandardMaterial({ color: 0x24466f, roughness: 0.6 }));
         box.position.set(c.x, -2.2, 8.6);
-        box.userData = { kind: 'device', code: c.code, name: c.name };
+        const device = qingling && D.byCode[c.code];
+        const name = c.name.replace(' ' + c.code, '');
+        box.userData = device ? { kind: 'device', code: c.code, name: c.name } : {kind:'schematic', name:name + '示意'};
+        if (device) this.tunnelFocus.set(c.code, c.x);
         powGrp.add(box); this.pickables.push(box);
-        const led = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.25, 1.45), new THREE.MeshBasicMaterial({ color: c.color }));
+        const color = device ? D.STATUS[device.status].color : '#4fd8f0';
+        const led = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.25, 1.45), new THREE.MeshBasicMaterial({ color }));
         led.position.set(c.x, -0.8, 8.6); powGrp.add(led);
-        this.addLabel(c.code, '#' + c.color.toString(16).padStart(6, '0'), null, c.x, 1.4, 8.6, 3.2);
+        const cabinetLabel = this.addLabel(device ? c.code : name, color, null, c.x, 1.4, 8.6, 3.2);
+        cabinetLabel.userData = box.userData; this.pickables.push(cabinetLabel);
       });
       // 紧急电话/消火栓 niches
       [-70, -10, 50].forEach((x, i) => {
         const niche = new THREE.Mesh(new THREE.BoxGeometry(1.6, 2.4, 0.6), new THREE.MeshStandardMaterial({ color: 0xd0453a, roughness: 0.6 }));
         niche.position.set(x, -2.6, -8.4);
-        niche.userData = { kind: 'device', code: 'SOS-0' + (i + 1), name: '紧急电话/消火栓箱 SOS-0' + (i + 1) };
+        niche.userData = { kind: 'schematic', name: '紧急电话/消火栓箱 ' + (i + 1) };
         powGrp.add(niche); this.pickables.push(niche);
       });
       this.addLabel(t.name + ' · 隧道数字孪生（洞内机电）', '#4fd8f0', D.kmText(t.start) + '—' + D.kmText(t.end) + ' · 长' + t.length + 'm · 示意模型', 0, 20, 0, 7.5);
@@ -740,7 +821,9 @@
       mk(0xcfe4ff, 1, -1.7); mk(0xffc46b, -1, 1.7);
     }
     buildCarsTunnel(n) {
-      const g = geo('tcar', () => new THREE.BoxGeometry(2.4, 1, 1.2));
+      const THREE = this.three || window.THREE;
+      const geometry = this.three ? this.sharedGeometry : geo;
+      const g = geometry('tcar', () => new THREE.BoxGeometry(2.4, 1, 1.2));
       const mesh = new THREE.InstancedMesh(g, new THREE.MeshStandardMaterial({ color: 0xcfe4ff, emissive: 0x88aaff, emissiveIntensity: 0.3 }), n);
       this.scene.add(mesh);
       const r = D.rng('bimcars');
@@ -1071,17 +1154,23 @@
       if (hit && hit.userData && this.opts.onSelect) this.opts.onSelect(hit.userData);
     }
     /* ---- 实时控制 API ---- */
-    setTime(t) { this.time = t; this.applyTime(); this.applyFog(); }
+    setTime(t) { this.time = t; if (!this.fallbackEl) { this.applyTime(); this.applyFog(); } }
     setTraffic(n) {
       this.traffic = n;
       this.trails.forEach(tr => { tr.mesh.count = Math.min(n, tr.max); });
       this.cars.forEach(c => { c.mesh.count = Math.min(Math.floor(n / 2), c.max); });
       if (this.carsTunnel) this.carsTunnel.mesh.count = Math.min(Math.round(n / 3), this.carsTunnel.max);
     }
-    setFog(v) { this.fogAmt = v; this.applyFog(); }
+    setFog(v) { this.fogAmt = v; if (!this.fallbackEl) this.applyFog(); }
     setLabels(on) { this.labelsOn = on; this.labelSprites.forEach(s => { s.visible = on; }); }
     setEquip(key, on) { this.equip[key] = on; if (this.equipGroups[key]) this.equipGroups[key].visible = on; }
-    setQuality(q) { const cap = q === 'low' ? 1 : q === 'high' ? 2 : 1.5; this.renderer.setPixelRatio(Math.min(devicePixelRatio || 1, cap)); this.resize(); }
+    setQuality(q) { if (this.fallbackEl) return; const cap = q === 'low' ? 1 : q === 'high' ? 2 : 1.5; this.renderer.setPixelRatio(Math.min(devicePixelRatio || 1, cap)); this.resize(); }
+    setRouteTerrain(on) {
+      if (!this.routeLandscape || !this.routeGrid) return;
+      this.routeLandscape.visible = on;
+      this.routeGrid.visible = !on;
+      if (this.scene.background) { this.applyTime(); this.applyFog(); }
+    }
     setLayer(key, on) {
       this.layers[key] = on;
       if (key === 'events' && this.eventGroup) this.eventGroup.visible = on;
@@ -1099,6 +1188,7 @@
       }));
     }
     setView(v) {
+      if (this.fallbackEl) { this.fallbackMap?.resetView(); return; }
       const M = this.mode;
       if (v === 'top') { this.goal.phi = 0.22; this.goal.r = M === 'macro' ? 420 : M === 'room' ? 60 : 170; }
       else if (v === 'inside') {
@@ -1110,14 +1200,15 @@
       this.lastInteract = performance.now();
     }
     focus(code) {
+      if (this.fallbackEl) return;
       const dev = D.byCode[code];
       if (dev && this.mode === 'macro') {
         const x = KM2X(dev.km);
         this.targetGoal.set(x, 8, centerZ(x)); this.goal.r = 70; this.goal.phi = 0.9;
         this.lastInteract = performance.now();
       } else if (this.mode === 'tunnel') {
-        const map = { 'JF-01': -60, 'JF-02': -20, 'JF-03': 20, 'JF-04': 60, 'Z-03': -30, 'CAM-01': -52, 'PDB-02': -8, 'CAB-03': -46 };
-        if (map[code] != null) { this.targetGoal.set(map[code], 0, 0); this.goal.r = 45; this.lastInteract = performance.now(); }
+        const x = this.tunnelFocus?.get(code);
+        if (x != null) { this.targetGoal.set(x, 0, 0); this.goal.r = 45; this.lastInteract = performance.now(); }
       } else if (this.mode === 'room') {
         const rk = (this.rackMeshes || []).find(x => x.code === code);
         if (rk) { this.targetGoal.set(rk.grp.position.x, 1.2, rk.grp.position.z); this.goal.r = 12; this.lastInteract = performance.now(); return; }
@@ -1132,6 +1223,7 @@
       }
     }
     focusEvent(id) {
+      if (this.fallbackEl) return;
       const e = D.events.find(x => x.id === id);
       if (e && this.mode === 'macro') {
         const x = KM2X(e.km);
@@ -1140,8 +1232,9 @@
       }
     }
     resetView() {
+      if (this.fallbackEl) { this.fallbackMap?.resetView(); return; }
       const M = this.mode;
-      const p = M === 'macro' ? { r: 330, theta: 0.5, phi: 0.94 } : M === 'road' ? { r: 120, theta: 0.35, phi: 1.12 } : M === 'room' ? { r: 16, theta: 0.02, phi: 1.5 } : { r: 120, theta: 0.85, phi: 1.05 };
+      const p = M === 'macro' ? { r: macroOverviewRadius(this.camera.aspect), theta: 0.5, phi: 0.94 } : M === 'road' ? { r: 120, theta: 0.35, phi: 1.12 } : M === 'room' ? { r: 16, theta: 0.02, phi: 1.5 } : { r: 120, theta: 0.85, phi: 1.05 };
       this.targetGoal.set(0, M === 'macro' ? 4 : M === 'room' ? 1.3 : 0, M === 'room' ? -4 : 0);
       Object.assign(this.goal, p);
       this.lastInteract = performance.now();
@@ -1238,20 +1331,37 @@
         if (o.geometry && !Object.values(GEO).includes(o.geometry)) o.geometry.dispose();
         if (o.material) {
           const ms = Array.isArray(o.material) ? o.material : [o.material];
-          ms.forEach(m => { if (m.map) m.map.dispose(); m.dispose(); });
+          ms.forEach(m => { if (m.map) m.map.dispose(); m.normalMap?.dispose(); m.dispose(); });
         }
       });
       if (this.renderer) { this.renderer.dispose(); this.renderer.domElement.remove(); }
+      this.fallbackMap?.destroy();
+      this.fallbackEl?.remove();
       const i = instances.indexOf(this);
       if (i >= 0) instances.splice(i, 1);
     }
     fallback() {
       if (this.renderer && this.renderer.domElement) this.renderer.domElement.remove();
+      this.fallbackEl = document.createElement('div');
+      this.fallbackEl.style.cssText = 'position:absolute;inset:0';
+      this.el.appendChild(this.fallbackEl);
+      if (this.mode !== 'macro') {
+        const tunnel = this.mode === 'tunnel' && D.TUNNELS.find(t => t.id === this.sceneKey);
+        const room = this.mode === 'room' && D.ROOMS.find(r => r.id === this.sceneKey);
+        const road = ROAD_SCENES.find(s => s.id === this.sceneKey);
+        const section = road && D.sectionOf(road.km);
+        const devices = D.devices.filter(d => tunnel ? D.tunnelOf(d.km)?.id === tunnel.id : room ? d.place === room.name : section && D.sectionOf(d.km).id === section.id);
+        this.fallbackEl.className = 'asset-model-fallback';
+        this.fallbackEl.innerHTML = `<h3>${(tunnel || room || section)?.name || '当前场景'} · 设备档案</h3><p>当前浏览器无法显示三维模型，可按设备编码查看档案。</p>
+          ${devices.map(d => `<button type="button" data-asset="${d.code}">${d.code} · ${d.name} · ${d.kmText}</button>`).join('')}`;
+        this.fallbackEl.onclick = e => { const b = e.target.closest('[data-asset]'); if (b) this.opts.onSelect?.({kind:'device', code:b.dataset.asset}); };
+        return;
+      }
       const note = document.createElement('div');
       note.style.cssText = 'position:absolute;top:10px;left:50%;transform:translateX(-50%);z-index:8;background:rgba(8,26,51,.9);border:1px solid #f59e0b;color:#ffd28a;font-size:11px;padding:4px 10px;border-radius:6px';
       note.textContent = '当前环境不支持 WebGL，已切换二维示意模式';
-      this.el.appendChild(note);
-      Twin.map2D(this.el, this.opts);
+      this.fallbackEl.appendChild(note);
+      Twin.map2D(this.fallbackEl, this.opts);
     }
   }
 
@@ -1288,7 +1398,7 @@
       const col = d.status === 'offline' ? '#94a3b8' : d.status === 'warn' ? '#f59e0b' : D.CATS[d.cat].color;
       svg += `<circle class="m2d-pt" data-code="${d.code}" cx="${x}" cy="${y}" r="${D.HERO[d.code] ? 4 : 2.4}" fill="${col}" stroke="#060f22" stroke-width="1" style="cursor:pointer"/>`;
     });
-    D.events.filter(e => e.level === '严重').forEach((e, i) => {
+    D.events.filter(D.isOpenMajor).forEach((e, i) => {
       const x = X(e.km), y = Y(e.km);
       svg += `<g class="m2d-ev" data-id="${e.id}" style="cursor:pointer">
         <circle cx="${x}" cy="${y}" r="12" fill="none" stroke="#ef4444" stroke-width="1.5" opacity=".8"><animate attributeName="r" values="7;16" dur="1.6s" repeatCount="indefinite"/><animate attributeName="opacity" values=".9;0" dur="1.6s" repeatCount="indefinite"/></circle>
@@ -1315,13 +1425,19 @@
   Twin.geoMap = function (el, opts) {
     opts = opts || {};
     const H = opts.height || 320;
+    const startKm = Math.max(D.ROAD.start, opts.scope?.start);
+    const endKm = Math.min(D.ROAD.end, opts.scope?.end);
+    const scoped = startKm < endKm && Number.isFinite(startKm) && Number.isFinite(endKm);
+    const inScope = km => !scoped || (km >= startKm && km <= endKm);
     const wrap = document.createElement('div');
-    wrap.className = 'geo-map';
+    wrap.className = scoped ? 'geo-map gm-scoped' : 'geo-map';
     wrap.style.height = opts.fill ? '100%' : H + 'px';
     wrap.innerHTML =
       '<div class="gm-tiles"></div><svg class="gm-svg"></svg><div class="gm-nodes"></div>' +
-      '<div class="gm-ctl"><button data-z="1" title="放大">+</button><button data-z="-1" title="缩小">−</button><button data-z="0" title="复位视图">⌂</button></div>' +
-      '<div class="gm-legend"><span class="li"><i class="ln"></i>示范路段路线</span><span class="li"><i style="background:#35e0ff"></i>隧道</span><span class="li"><i style="background:#a78bfa"></i>收费站</span><span class="li"><i style="background:#8fa6c4"></i>机房</span><span class="li"><i style="background:#ef4444"></i>严重事件</span></div>' +
+      '<div class="gm-ctl"><button data-z="1" title="放大">+</button><button data-z="-1" title="缩小">−</button>' + '<button data-z="0" title="复位视图">⌂</button>' + '</div>' +
+      (scoped
+        ? '<div class="gm-legend"><span class="li"><i class="ln"></i>当前区间</span><span class="li"><i style="background:#35e0ff"></i>隧道</span><span class="li"><i style="background:#f2b84b"></i>设备</span><span class="li"><i style="background:#ef4444"></i>事件</span></div>'
+        : '<div class="gm-legend"><span class="li"><i class="ln"></i>示范路段路线</span><span class="li"><i style="background:#35e0ff"></i>隧道</span><span class="li"><i style="background:#a78bfa"></i>收费站</span><span class="li"><i style="background:#8fa6c4"></i>机房</span><span class="li"><i style="background:#ef4444"></i>严重事件</span></div>') +
       '<div class="gm-attr">在线地图 © 高德 · 路线/节点为模拟映射</div>' +
       '<div class="gm-load">正在加载在线地图…</div>';
     el.appendChild(wrap);
@@ -1332,23 +1448,46 @@
     const HOME = { z: 10, lng: 119.46, lat: 30.145 };
     let tileSize = 256;
     function fitZoom() {
+      if (scoped) {
+        // Double the farthest offset so an off-centre focus still includes both ends.
+        const centerPoint = px(HOME.lng, HOME.lat, 256);
+        let dx = 0, dy = 0;
+        for (const [lng, lat] of route) {
+          const [x, y] = px(lng, lat, 256);
+          dx = Math.max(dx, Math.abs(x - centerPoint[0]));
+          dy = Math.max(dy, Math.abs(y - centerPoint[1]));
+        }
+        const width = Math.max(64, wrap.clientWidth - Math.min(160, wrap.clientWidth * 0.3));
+        const height = Math.max(40, (wrap.clientHeight || H) - 100);
+        const level = Math.min(18, Math.log2(Math.min(width / (2 * dx || 1e-9), height / (2 * dy || 1e-9))));
+        const nearest = Math.max(8, Math.round(level));
+        tileSize = 256 * Math.pow(2, level - nearest);
+        return nearest;
+      }
       if (!opts.fill) return HOME.z;
       const rail = el.closest('.drive')?.querySelector('.drive-left');
       const sides = innerWidth > 900 && rail?.getBoundingClientRect().width || 0;
       const width = Math.max(120, wrap.clientWidth - 2 * sides - (sides ? 112 : 52));
       const longitudeSpan = Math.abs(GEO_ROUTE[0][0] - GEO_ROUTE[GEO_ROUTE.length - 1][0]);
-      const level = Math.max(8, Math.min(12, Math.log2(width * 360 / (256 * longitudeSpan))));
-      const nearest = Math.round(level);
+      const height = wrap.clientHeight;
+      const drive = el.closest('.drive');
+      const history = drive?.querySelector('.drive-history');
+      const bottom = history?.offsetParent && innerWidth > 900 ? height - history.offsetTop : 44;
+      const inset = Math.max(drive?.querySelector('.drive-head')?.offsetHeight || 0, bottom);
+      const usableHeight = Math.max(60, height - 2 * (inset + 16));
+      const latitudes = GEO_ROUTE.map(point => point[1]);
+      const latitudeSpan = (Math.max(...latitudes) - Math.min(...latitudes)) / Math.cos(HOME.lat * Math.PI / 180);
+      const level = Math.min(12, Math.log2(360 / 256 * Math.min(width / longitudeSpan, usableHeight / latitudeSpan)));
+      const nearest = Math.max(8, Math.round(level));
       tileSize = 256 * Math.pow(2, level - nearest);
       return nearest;
     }
     let homeView = true;
-    let z = fitZoom(), center = { lng: HOME.lng, lat: HOME.lat };
     let failed = false, loaded = 0, errs = 0;
     const cache = new Map();
     const world = () => tileSize * Math.pow(2, z);
-    function px(lng, lat) {
-      const w = world(), s = Math.sin(lat * Math.PI / 180);
+    function px(lng, lat, w = world()) {
+      const s = Math.sin(lat * Math.PI / 180);
       return [(lng + 180) / 360 * w, (0.5 - Math.log((1 + s) / (1 - s)) / (4 * Math.PI)) * w];
     }
     function unpx(x, y) {
@@ -1374,6 +1513,16 @@
       const f = (target - cum[i - 1]) / ((cum[i] - cum[i - 1]) || 1);
       return [dense[i - 1][0] + (dense[i][0] - dense[i - 1][0]) * f, dense[i - 1][1] + (dense[i][1] - dense[i - 1][1]) * f];
     }
+    const route = scoped ? [kmLL(startKm), ...dense.filter((point, index) => {
+      const km = cum[index] / totalLen * D.ROAD.end;
+      return km > startKm && km < endKm;
+    }), kmLL(endKm)] : dense;
+    if (scoped) {
+      const focusKm = Number.isFinite(opts.focusKm) ? Math.min(endKm, Math.max(startKm, opts.focusKm)) : (startKm + endKm) / 2;
+      [HOME.lng, HOME.lat] = kmLL(focusKm);
+    }
+    let z = fitZoom(), center = { lng: HOME.lng, lat: HOME.lat };
+    const kmLabels = scoped ? [startKm, (startKm + endKm) / 2, endKm] : [0, 10, 20, 30, 40, 50, 58];
     function view() {
       const w = Math.max(wrap.clientWidth, 200), h = wrap.clientHeight || H;
       const c = px(center.lng, center.lat);
@@ -1381,7 +1530,7 @@
     }
     function fail() {
       if (failed) return;
-      if (opts.fill) {
+      if (opts.fill || scoped) {
         wrap.classList.add('gm-offline');
         wrap.querySelector('.gm-attr').textContent = '路段示意 · 在线底图暂不可用';
         loadNote.style.display = 'none';
@@ -1426,7 +1575,7 @@
       svg.setAttribute('width', v.w); svg.setAttribute('height', v.h);
       svg.setAttribute('viewBox', '0 0 ' + v.w + ' ' + v.h);
       let d = '';
-      dense.forEach((ll, i) => {
+      route.forEach((ll, i) => {
         const p = px(ll[0], ll[1]);
         d += (i ? 'L' : 'M') + (p[0] - v.tl[0]).toFixed(1) + ',' + (p[1] - v.tl[1]).toFixed(1);
       });
@@ -1434,28 +1583,35 @@
         '<path d="' + d + '" fill="none" stroke="#22d3ee" stroke-opacity=".22" stroke-width="12" stroke-linecap="round"/>' +
         '<path d="' + d + '" fill="none" stroke="#0b3a55" stroke-width="6.5" stroke-linecap="round"/>' +
         '<path class="gm-flow" d="' + d + '" fill="none" stroke="#35e0ff" stroke-width="2.6" stroke-linecap="round" stroke-dasharray="10 7"/>';
-      const nodes = [];
-      D.events.filter(e => e.level === '严重').forEach(e => nodes.push({ kind: 'event', code: e.id, km: e.km, label: e.name, cls: '' }));
-      D.TOLLS.forEach(t => nodes.push({ kind: 'toll', code: t.id, km: t.km, label: t.name, cls: '' }));
-      D.TUNNELS.forEach(t => nodes.push({ kind: 'tunnel', code: t.id, km: (t.start + t.end) / 2, label: t.name, cls: t.hero ? 'hero' : '' }));
-      D.ROOMS.forEach(r => nodes.push({ kind: 'room', code: r.id, km: r.km, label: r.name.replace('机房', ''), cls: '' }));
+      const nodes = Array.isArray(opts.nodes) ? opts.nodes : [
+        ...D.events.filter(D.isOpenMajor).map(e => ({kind:'event', code:e.id, km:e.km, label:e.name})),
+        ...D.TOLLS.map(t => ({kind:'toll', code:t.id, km:t.km, label:t.name})),
+        ...D.TUNNELS.map(t => ({kind:'tunnel', code:t.id, km:(t.start+t.end)/2, label:t.name, cls:t.hero ? 'hero' : ''})),
+        ...D.ROOMS.map(r => ({kind:'room', code:r.id, km:r.km, label:r.name.replace('机房', '')}))
+      ];
       let evIdx = 0;
       const placed = [];
+      const leaders = [];
       const hit = (a, b) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
-      nodesBox.innerHTML = nodes.map(n => {
+      nodesBox.innerHTML = nodes.filter(n => n && Number.isFinite(n.km) && inScope(n.km)).map(n => {
         const ll = kmLL(n.km), p = px(ll[0], ll[1]);
         const x = p[0] - v.tl[0], y = p[1] - v.tl[1];
         if (x < -80 || x > v.w + 80 || y < -40 || y > v.h + 40) return '';
         let oy = n.kind === 'tunnel' ? 16 : n.kind === 'toll' ? -14 : n.kind === 'event' ? -16 - (evIdx++ % 2) * 17 : 0;
         const w = n.kind === 'room' ? 18 : n.label.length * 11 + 24, h = 18;
         const dir = (n.kind === 'toll' || n.kind === 'event') ? -1 : 1;
-        for (let t = 0; t < 4; t++) {
+        for (let t = 0; t < (scoped ? Math.max(4, nodes.length) : 4); t++) {
           const rect = { x: x - w / 2, y: y + oy - h / 2, w, h };
           if (!placed.some(q => hit(rect, q))) { placed.push(rect); break; }
           oy += dir * 20;
         }
-        return '<button class="gm-n ' + n.kind + ' ' + n.cls + '" style="left:' + x.toFixed(1) + 'px;top:' + (y + oy).toFixed(1) + 'px" data-kind="' + n.kind + '" data-code="' + n.code + '" title="' + n.label + '"><i></i><span>' + n.label + '</span></button>';
-      }).join('') + [0, 10, 20, 30, 40, 50, 58].map(km => {
+        if (scoped && Math.abs(oy) > 12) {
+          const lineEnd = y + oy - Math.sign(oy) * h / 2;
+          leaders.push('<line x1="' + x + '" y1="' + y + '" x2="' + x + '" y2="' + lineEnd + '" stroke="#8cabad" stroke-opacity=".65"/>');
+        }
+        const esc = window.UI.esc;
+        return '<button class="gm-n ' + esc(n.kind) + ' ' + esc(n.cls || '') + '" style="left:' + x.toFixed(1) + 'px;top:' + (y + oy).toFixed(1) + 'px" data-kind="' + esc(n.kind) + '" data-code="' + esc(n.code) + '" title="' + esc(n.label) + '"><i></i><span>' + esc(n.label) + '</span></button>';
+      }).join('') + kmLabels.map(km => {
         const ll = kmLL(km), p = px(ll[0], ll[1]);
         const x = p[0] - v.tl[0], y = p[1] - v.tl[1];
         if (x < 0 || x > v.w || y < 0 || y > v.h) return '';
@@ -1468,6 +1624,7 @@
         }
         return '<span class="gm-km" style="left:' + x.toFixed(1) + 'px;top:' + top.toFixed(1) + 'px">' + D.kmText(km) + '</span>';
       }).join('');
+      if (leaders.length) svg.insertAdjacentHTML('beforeend', leaders.join(''));
       nodesBox.querySelectorAll('.gm-n').forEach(b => b.addEventListener('click', ev => {
         ev.stopPropagation();
         opts.onSelect && opts.onSelect({ kind: b.dataset.kind, code: b.dataset.code });
@@ -1514,7 +1671,7 @@
     }
     function zoomAt(delta, mx, my) {
       const level=Math.log2(world()/256);
-      const next=Math.max(8,Math.min(14,level+delta));
+      const next=Math.max(8,Math.min(scoped ? 18 : 14,level+delta));
       if (Math.abs(next-level)<0.00001) return;
       const v=view();
       const anchor=unpx(v.tl[0]+mx,v.tl[1]+my);
@@ -1541,18 +1698,27 @@
     wrap.addEventListener('wheel', onWheel, { passive: false });
     wrap.querySelectorAll('.gm-ctl button').forEach(b => b.addEventListener('click', () => {
       const dz = +b.dataset.z;
-      if (dz === 0) { homeView = true; tileSize = 256; z = fitZoom(); center = { lng: HOME.lng, lat: HOME.lat }; cache.forEach(img => img.remove()); cache.clear(); render(); }
+      if (dz === 0) resetView();
       else zoomAt(dz, wrap.clientWidth / 2, wrap.clientHeight / 2);
     }));
+    function resetView() {
+      drag = null; wrap.classList.remove('grabbing');
+      homeView = true;
+      tileSize = 256;
+      z = fitZoom();
+      center = { lng: HOME.lng, lat: HOME.lat };
+      render();
+    }
     const ro = new ResizeObserver(() => { if (homeView) z = fitZoom(); render(); });
     ro.observe(wrap);
     render();
     const inst = {
+      resetView,
       destroy() {
         failed = true;
         clearTimeout(failTimer);
-        ro.disconnect();
         cancelAnimationFrame(frame);
+        ro.disconnect();
         cache.forEach(img => img.remove()); cache.clear();
         wrap.remove();
         const i = instances.indexOf(inst);
@@ -1566,6 +1732,20 @@
   Twin.destroyAll = function () { instances.slice().forEach(i => i.destroy()); };
   Twin.instances = instances;
   Twin.Twin = Twin;
+  // Reuse the inspection model in the bridge scene without creating another camera or renderer.
+  Twin.createTunnelDetail = function (three, sceneKey) {
+    const cache = new Map();
+    const detail = Object.assign(Object.create(Twin.prototype), {
+      three, sceneKey, scene: new three.Group(), traffic: 26,
+      equipGroups: {}, pickables: [], spinners: [], pulses: [], labelSprites: [],
+      sharedGeometry(key, make) {
+        if (!cache.has(key)) cache.set(key, make());
+        return cache.get(key);
+      }
+    });
+    detail.buildTunnel();
+    return detail;
+  };
   Twin.ROAD_SCENES = ROAD_SCENES;
   window.Twin = Twin;
 })();

@@ -38,7 +38,8 @@
       }
       el.innerHTML = U.pageHead('成本分析 · 机电运维成本结构',
         '按设备、路段、故障类型与时间维度归集运维成本，识别高成本与重复维修设备。本页为示例测算，成本数据为统计口径，含能源/备件/服务/现场/应急五类，不含基建投资。',
-        `<button class="btn" id="cost-caliber">${U.icon('diag', 14)} 统计口径说明</button>
+        `<button class="btn" onclick="UI.go('camera-renewal',{from:'cost'})">同杆摄像机修换方案比选</button>
+         <button class="btn" id="cost-caliber">${U.icon('diag', 14)} 统计口径说明</button>
          <button class="btn primary" id="cost-export">${U.icon('export', 14)} 导出明细摘要</button>`, U.demoBadge('示例测算')) +
         `<div class="grid g-6 mb" id="cost-kpis"></div>
         <div class="card mb"><div class="card-b">
@@ -186,6 +187,7 @@
           <div class="divider"></div>
           <button class="btn primary" onclick="UI.openDevice('${code}')">${U.icon('dev', 13)} 设备档案</button>
           <button class="btn" onclick="UI.go('keydev',{focus:'${code}'})">${U.icon('diag', 13)} 重点设备分析</button>
+          ${code === 'CAM-057' ? `<button class="btn" onclick="UI.go('camera-renewal',{from:'device',focus:'CAM-057'})">查看同杆修换测算示例</button>` : ''}
           ${code === 'BAT-01' ? `<button class="btn" onclick="UI.go('ups')">${U.icon('batt', 13)} UPS更新决策</button>` : ''}`, true);
       }
       function drawRank() {
@@ -417,10 +419,97 @@ ${Object.keys(PLANS).map(k => '  ' + k + ' ' + PLANS[k].name + '：' + planTotal
     }
   };
 
+  P['camera-renewal'] = {
+    title: '同杆摄像机修换方案比选', group: '成本与决策', crumb: true,
+    render(el, params = {}) {
+      const price = 4600, life = 6, soloVisit = 1680, priorityBudget = 12000;
+      const money = n => n.toLocaleString('zh-CN', {maximumFractionDigits: 2});
+      const residual = age => price * Math.max(0, 1 - age / life);
+      const inputs = [
+        {key:'oldFailure', label:'旧机年故障概率', unit:'%', example:35, max:100},
+        {key:'newFailure', label:'新机年故障概率', unit:'%', example:5, max:100},
+        {key:'repair', label:'每次故障的修复费用', unit:'元', example:900},
+        {key:'outage', label:'每次故障的停运损失', unit:'元', example:600},
+        {key:'nowLabor', label:'本次追加安装人工', unit:'元', example:180},
+        {key:'laterLabor', label:'下次集中检修追加人工', unit:'元', example:240}
+      ];
+      const deviceOrigin = params.from === 'device' && params.focus === 'CAM-057';
+      const back = deviceOrigin ? `<button class="btn" onclick="UI.openDevice('CAM-057')">查看来源设备 CAM-057</button>`
+        : params.from === 'tasks' ? `<button class="btn" onclick="UI.go('tasks')">返回现场作业统筹</button>`
+        : `<button class="btn" onclick="UI.go('cost')">返回成本分析</button>`;
+      el.innerHTML = U.pageHead('同杆摄像机修换方案比选',
+          '路维智策 · 设备修换分析。云岭隧道模拟案例 CAM-B02：同杆另一台设备已安排检修，本次登高是否一并更换仍在线的摄像机？', back, U.demoBadge('独立模拟案例')) +
+        `<div class="card mb"><div class="card-b filter-bar">
+          <label class="fld">在线摄像机已服役 <select class="sel" id="renew-age"><option value="1">1 年</option><option value="3">3 年</option><option value="5" selected>5 年</option></select></label>
+          <label class="fld">年度更新预算 <select class="sel" id="renew-budget">${[13000,16000,22000].map(n => `<option value="${n}" ${n === 16000 ? 'selected' : ''}>${money(n)} 元</option>`).join('')}</select></label>
+          <span class="small muted">购置价 4,600 元 · 使用年限 6 年 · 下次集中检修假设在 6 个月后</span>
+        </div></div>
+        <div class="grid g-2 mb" id="renew-screen"></div>
+        <div class="card mb"><div class="card-h"><span class="card-t">比较未来 12 个月的三种安排</span></div>
+          <div class="card-b" id="renew-compare" aria-live="polite"></div></div>
+        <div class="card"><div class="card-h"><span class="card-t">补充现场测算参数</span><span class="spacer"></span>
+          <button class="btn sm" id="renew-example">填入示例假设</button><button class="btn sm" id="renew-clear">清空参数</button></div>
+          <div class="card-b">
+            <div class="grid g-3">${inputs.map(f => `<label class="fld">${f.label}（${f.unit}）<input class="inp" style="width:100%;margin-top:4px" id="renew-${f.key}" type="number" min="0" ${f.max ? 'max="100"' : ''} step="any" placeholder="待补充"></label>`).join('')}</div>
+            <p class="small muted mt">概率按一年最多一次可修复故障估算，半年按半数概率折算。每次故障另计单独出车和占道 1,680 元。两次集中窗口的基础出车均已安排，安装人工按增量填报。</p>
+          </div></div>`;
+      const get = key => el.querySelector('#renew-' + key);
+      function draw() {
+        const age = +get('age').value, budget = +get('budget').value;
+        const opening = residual(age);
+        const screening = soloVisit - Math.round(opening);
+        const left = budget - priorityBudget, gap = Math.max(0, price - left);
+        const status = screening <= 0 ? '初筛建议继续使用' : gap > 0 ? '本期延期' : '可进入本期更新复核';
+        get('screen').innerHTML = `<section class="card"><div class="card-h"><span class="card-t">提前更换初筛</span></div><div class="card-b">
+          <div class="concl"><h4>${screening > 0 ? '+' : ''}${money(screening)} 元 · ${screening > 0 ? '进入详细比选' : '倾向继续使用'}</h4>
+          <p>可避免的一次单独出车及占道费 ${money(soloVisit)} 元 − 提前退役的剩余价值 ${money(Math.round(opening))} 元。初筛假设以后确需单独出车，差额仅用于筛选。</p></div>
+          <p class="small muted mt">剩余价值按直线法计算，以整元进行初筛。采购、追加人工、故障风险及期末资产价值在下表统一核算。</p></div></section>
+          <section class="card"><div class="card-h"><span class="card-t">年度预算安排</span></div><div class="card-b">
+          <div class="concl"><h4>${status}${gap ? ' · 预算缺口 ' + money(gap) + ' 元' : ''}</h4>
+          <p>年度预算 ${money(budget)} 元，优先安排收费车道控制器 ${money(priorityBudget)} 元。轮到摄像机时余额 ${money(left)} 元，设备更新需 ${money(price)} 元。</p></div>
+          <p class="small muted mt">预算按业务中断影响排序。此处只核对设备购置额度，人工和未来故障费用计入方案比较。</p></div></section>`;
+        const values = {}, missing = [];
+        for (const f of inputs) {
+          const node = get(f.key), value = node.valueAsNumber;
+          if (!Number.isFinite(value) || !node.validity.valid) missing.push(f.label);
+          else values[f.key] = value;
+        }
+        const riskCost = oldShare => (oldShare * values.oldFailure + (1 - oldShare) * values.newFailure) / 100 * (soloVisit + values.repair + values.outage);
+        const cases = [
+          {name:'继续使用', action:'保留旧机，故障时单独出车修复', purchase:0, labor:0, end:residual(age + 1), oldShare:1},
+          {name:'本次更换', action:'随本次作业购置并安装新机', purchase:price, labor:values.nowLabor, end:residual(1), oldShare:0},
+          {name:'下次集中检修', action:'保留旧机半年，到集中窗口再更换', purchase:price, labor:values.laterLabor, end:residual(0.5), oldShare:0.5}
+        ];
+        if (!missing.length) cases.forEach(c => {
+          c.risk = riskCost(c.oldShare);
+          c.cost = opening + c.purchase + c.labor + c.risk - c.end;
+        });
+        const lowest = Math.min(...cases.map(c => c.cost));
+        const row = (label, cells) => `<tr><th scope="row">${label}</th>${cells.map(v => `<td>${v}</td>`).join('')}</tr>`;
+        get('compare').innerHTML = `<div style="overflow-x:auto"><table class="tbl"><thead><tr><th>测算项目</th>${cases.map(c => `<th>${c.name}</th>`).join('')}</tr></thead><tbody>
+          ${row('作业安排', cases.map(c => c.action))}
+          ${row('采购支出', cases.map(c => money(c.purchase) + ' 元'))}
+          ${row('追加人工', cases.map(c => c.labor == null ? '待补充' : money(c.labor) + ' 元'))}
+          ${row('预期故障费用及损失', cases.map(c => Number.isFinite(riskCost(c.oldShare)) ? money(riskCost(c.oldShare)) + ' 元' : '待测算'))}
+          ${row('期末设备剩余价值', cases.map(c => money(c.end) + ' 元'))}
+          ${row('12 个月预计经济成本', cases.map(c => missing.length ? '待测算' : '<b>' + money(c.cost) + ' 元</b>'))}
+          </tbody></table></div><div class="note-box ${missing.length ? '' : 'blue'} mt">${missing.length ? '待补充或校正：' + missing.join('、') + '。参数齐全后可比较总成本。' : '按当前假设，预计经济成本最低：' + cases.filter(c => Math.abs(c.cost - lowest) < .005).map(c => c.name).join('、') + '。本期采购另受年度预算约束。'}</div>
+          <p class="small muted mt">预计经济成本 = 期初旧机剩余价值 ${money(opening)} 元 + 采购 + 追加人工 + 预期故障费用及损失 − 期末设备剩余价值。按直线剩余价值、退役回收收入为零和未折现口径计算。单独出车计入故障费用，初筛差额不再抵扣。</p>`;
+      }
+      get('age').addEventListener('change', draw);
+      get('budget').addEventListener('change', draw);
+      inputs.forEach(f => get(f.key).addEventListener('input', draw));
+      get('example').addEventListener('click', () => { inputs.forEach(f => { get(f.key).value = f.example; }); draw(); });
+      get('clear').addEventListener('click', () => { inputs.forEach(f => { get(f.key).value = ''; }); draw(); });
+      draw();
+    }
+  };
+
   /* ================= 8.16 成效评价 ================= */
   P.kpi = {
     title: '成效评价 · 指标对比', group: '成本与决策', crumb: true,
     render(el, params) {
+      if (params?.case === 'yunling') return P.light.renderEconomicCase(el, true, params);
       const GROUPS = { all: '全部指标', data: '数据质量', diag: '诊断效率', field: '作业效率', cost: '能耗成本' };
       const GKEYS = { data: ['coverage', 'integrity'], diag: ['locate', 'accuracy'], field: ['mileage', 'perTrip'], cost: ['energy', 'cost'] };
       let group = 'all', period = 'month', sel = 'coverage';
@@ -435,7 +524,8 @@ ${Object.keys(PLANS).map(k => '  ' + k + ' ' + PLANS[k].name + '：' + planTotal
       }
       el.innerHTML = U.pageHead('成效评价 · 运维成效指标对比',
         '对比系统应用前后的关键运维指标，展示基线值与模拟变化值。指标含明确定义、口径与数据来源；能耗类指标按交通量/天气/季节归一化。本页为统计口径，不虚构考核目标。',
-        `<button class="btn" id="kpi-caliber">${U.icon('diag', 14)} 指标口径说明</button>`, U.demoBadge('统计口径')) +
+        `<button class="btn" onclick="UI.go('kpi',{case:'yunling'})">照明方案 · 表计核验</button>
+         <button class="btn" id="kpi-caliber">${U.icon('diag', 14)} 指标口径说明</button>`, U.demoBadge('统计口径')) +
         `<div class="card mb"><div class="card-b">
           <div class="filter-bar" style="margin:0">
             <span class="fld" style="font-weight:600;color:var(--navy-800)">指标分组</span>

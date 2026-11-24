@@ -66,6 +66,7 @@
     { key: 'tasks', name: '现场作业统筹', icon: 'task' },
     { key: 'cost', name: '成本与决策', icon: 'cost', children: [
       { name: '运维成本分析', params: {}, key: 'cost' },
+      { name: '同杆摄像机修换比选', params: {}, key: 'camera-renewal' },
       { name: '成效评价', params: {}, key: 'kpi' }
     ]},
     { key: 'config', name: '基础配置', icon: 'cfg' }
@@ -95,6 +96,7 @@
   }
   function render() {
     current = parseHash();
+    D.syncTaskReviews();
     document.body.classList.toggle('drive-mode', current.page === 'dashboard');
     document.body.classList.remove('drive-nav-open');
     const p = Pages[current.page];
@@ -125,7 +127,7 @@
       const activeGroup = childKeys.includes(current.page);
       if (item.children) {
         const open = activeGroup;
-        html += `<div class="nav-group"><div class="nav-item ${activeGroup ? 'active' : ''} ${open ? 'open' : ''}" data-grp="${item.key}">${icon(item.icon)}<span>${item.name}</span>${item.badge ? '<span class="nav-badge">2</span>' : ''}<span class="arrow">▶</span></div><div class="nav-sub ${open ? 'open' : ''}">`;
+        html += `<div class="nav-group"><div class="nav-item ${activeGroup ? 'active' : ''} ${open ? 'open' : ''}" data-grp="${item.key}">${icon(item.icon)}<span>${item.name}</span>${item.badge ? `<span class="nav-badge">${D.events.filter(D.isOpenMajor).length}</span>` : ''}<span class="arrow">▶</span></div><div class="nav-sub ${open ? 'open' : ''}">`;
         item.children.forEach(c => {
           const k = c.key || item.key;
           if (allow && !allow.includes(k) && !allow.includes(item.key)) return;
@@ -279,14 +281,14 @@
   /* ---------- 设备详情抽屉 ---------- */
   function paramTemplate(dev) {
     const t = dev.type;
-    const drop = dev.code === 'FIBER-07' ? { dropAt: 20, dropTo: -27.8 } : dev.code === 'L-CIR-03' ? { dropAt: 18, dropTo: 0.4 } : {};
+    const drop = dev.code === 'FIBER-07' && dev.status !== 'online' ? { dropAt: 20, dropTo: -27.8 } : dev.code === 'L-CIR-03' ? { dropAt: 18, dropTo: 0.4 } : {};
     if (t.includes('摄像机')) return [
       { name: '视频码流', unit: 'Mbps', data: D.series(dev.code + 'a', 24, 4.2, 0.8, dev.status === 'offline' ? { dropAt: 21, dropTo: 0 } : {}), color: '#2f7bff' },
       { name: '图像质量评分', unit: '分', data: D.series(dev.code + 'b', 24, 92, 6, dev.status === 'offline' ? { dropAt: 21, dropTo: 0 } : {}), color: '#00b8d9' }
     ];
     if (t.includes('交换机')) return [
       { name: 'CPU利用率', unit: '%', data: D.series(dev.code + 'a', 24, 34, 14, { spikeAt: dev.code === 'SW-12' ? 21 : undefined, spike: 20 }), color: '#2f7bff' },
-      { name: '上联口丢包率', unit: '%', data: D.series(dev.code + 'b', 24, 0.1, 0.2, dev.code === 'SW-12' ? { dropAt: 21, dropTo: 100 } : {}), color: '#ef4444' }
+      { name: '上联口丢包率', unit: '%', data: D.series(dev.code + 'b', 24, 0.1, 0.2, dev.code === 'SW-12' && dev.status !== 'online' ? { dropAt: 21, dropTo: 100 } : {}), color: '#ef4444' }
     ];
     if (t.includes('光缆') || t.includes('光传输')) return [
       { name: '接收光功率', unit: 'dBm', data: D.series(dev.code + 'a', 24, -12.4, 1.2, Object.assign({ fix: 1 }, drop)), color: '#00b8d9', threshold: -25 }
@@ -342,6 +344,8 @@
         <span class="spacer" style="flex:1"></span>
         <button class="btn sm" onclick="UI.go('gis',{focus:'${code}'})">${icon('map', 13)} 孪生定位</button>
         <button class="btn sm" onclick="UI.go('topology',{focus:'${code}'})">${icon('topo', 13)} 拓扑关系</button>
+        ${code === 'CAM-057' ? `<button class="btn sm" onclick="UI.go('camera-renewal',{from:'device',focus:'${code}'})">同杆修换测算示例</button>` : ''}
+        ${code === 'L-CIR-03' || dev.zone === 'Z-03' ? `<button class="btn sm" onclick="UI.go('light')">照明策略与节能核算</button>` : ''}
         <button class="btn sm" onclick="UI.go('ai',{q:'${encodeURIComponent('设备' + code + '近30天有哪些异常？')}'})">${icon('ai', 13)} AI分析</button>
       </div>
       <div class="sec-t">设备身份</div>
@@ -367,6 +371,7 @@
         <span class="k">累计运行</span><span class="v">${dev.runHours.toLocaleString()} 小时</span>
         <span class="k">当前告警</span><span class="v">${devAlarms.filter(a => a.status === 'active').length} 条</span>
       </div>
+      <div class="chip-row">${eventLinks(dev.code)}</div>
       <div class="sec-t">参数趋势 <span class="badge-demo">模拟数据</span>
         <span style="flex:1"></span>
         <span class="btn-group" id="dev-range">
@@ -426,7 +431,41 @@
       b.classList.add('on'); drawRange(+b.dataset.r);
     }));
   }
-  function openAlarm(id) {
+  function eventLinks(code) {
+    return D.events.filter(e => e.affected.includes(code) || e.related.includes(code))
+      .map(e => `<button type="button" class="btn sm" onclick="UI.openEvent('${e.id}')">${e.name} · ${e.status}</button>`).join(' ');
+  }
+  function openEvent(id) {
+    const e = D.events.find(item => item.id === id);
+    if (!e) return;
+    if (e.page !== 'diagnosis') {
+      closeDrawer();
+      go(e.page, { id });
+      return;
+    }
+    const codes = [...e.affected, ...e.related];
+    const alarms = D.alarms.filter(a => codes.includes(a.asset)).sort((a, b) => b.start - a.start);
+    const task = D.tasks.find(t => t.eventId === id);
+    openDrawer('事件详情 · ' + id, `<h3>${e.name}</h3>
+      <div class="flex ai-center mb">${levelTag(e.level)} <b>${e.status}</b></div>
+      <div class="kv"><span class="k">位置</span><span class="v">${e.place}</span>
+        <span class="k">发生时间</span><span class="v">${D.fmtTime(e.time,'full')}</span></div>
+      <div class="sec-t">受影响设备</div><div class="chip-row">${e.affected.map(code =>
+        `<button class="btn sm" onclick="UI.openDevice('${code}')">${code} · ${D.byCode[code]?.name || code}</button>`).join(' ')}</div>
+      <div class="sec-t">诊断记录</div><p>${e.summary}</p><p>${e.candidate}</p>
+      <div class="sec-t">关联设备最近告警</div>${alarmRows(alarms.slice(0,5)) || '暂无告警'}
+      ${task ? `<button class="btn primary mt" onclick="UI.go('tasks',{id:'${task.id}'})">关联现场任务 ${task.id}</button>` : ''}`);
+  }
+  function alarmRows(alarms, fromRecent = false) {
+    return alarms.map(a => `<button type="button" class="evi alarm-list-item" onclick="UI.openAlarm('${a.id}',${fromRecent})">
+      <span class="evi-t">${levelTag(a.level)} ${a.type}<time>${D.fmtTime(a.start)}</time></span>
+      <span class="evi-d">${a.id} · ${a.asset} · ${D.byCode[a.asset]?.name || ''}</span>
+      <span class="src">${a.status === 'active' ? '未解除' : '已恢复'}</span></button>`).join('');
+  }
+  function openRecentAlarms() {
+    openDrawer('近24小时告警 · ' + D.recentAlarms.length + ' 条', alarmRows(D.recentAlarms, true));
+  }
+  function openAlarm(id, fromRecent = false) {
     const a = D.alarms.find(x => x.id === id);
     if (!a) return;
     const dev = D.byCode[a.asset];
@@ -439,6 +478,8 @@
         <span class="k">恢复时间</span><span class="v">${a.end ? D.fmtTime(a.end, 'full') : '—'}</span>
         <span class="k">数据来源</span><span class="v">${a.sourceId}</span>
       </div>
+      <div class="chip-row">${eventLinks(a.asset)}</div>
+      ${fromRecent ? '<button class="btn sm mt" onclick="UI.openRecentAlarms()">返回近24小时告警</button>' : ''}
       <div class="sec-t">告警描述</div><p style="font-size:12px;line-height:1.8;color:var(--text-2)">${a.desc}</p>
       <div class="divider"></div>
       <button class="btn primary" onclick="UI.openDevice('${a.asset}')">${icon('dev', 14)} 查看设备档案</button>
@@ -465,6 +506,7 @@
       renderNav();
     });
     document.getElementById('reset-btn').addEventListener('click', () => {
+      D.clearTaskReviews();
       localStorage.removeItem('demo-cfg-edits'); localStorage.removeItem('demo-light-plan');
       toast('模拟数据已重置为默认状态', 'ok');
       render();
@@ -526,15 +568,23 @@
     q = (q || '').trim();
     if (!q || !window.AIEngine) return;
     const thread = document.getElementById('rp-thread');
+    if (window.PersonalQwen?.busy(thread)) return;
     const u = document.createElement('div');
     u.className = 'rp-user'; u.textContent = q;
     thread.appendChild(u);
-    robotMsg(AIEngine.answer(q, { page: robot.page }));
+    const ctx = { ...current.params, page: robot.page, device: current.params.focus, event: current.params.id };
+    if (window.PersonalQwen) PersonalQwen.answer(q, ctx, thread, document.getElementById('rp-send'));
+    else robotMsg(AIEngine.answer(q, ctx));
     const inp = document.getElementById('rp-input');
     if (inp) inp.value = '';
   }
   function robotWelcome() {
     const thread = document.getElementById('rp-thread');
+    if (window.PersonalQwen) {
+      PersonalQwen.reset(thread, document.getElementById('rp-send'));
+      thread.innerHTML = '<div class="rp-hello"><b>千问运维助手</b>可询问设备、告警和现场任务，也可以接着追问。</div>';
+      return;
+    }
     thread.innerHTML = `<div class="rp-hello"><b>${icon('ai', 14)} 运维分析助手</b>
       <div>我已读取当前页面的模拟数据上下文。点击上方预设问题即可快速分析，也可输入设备编码（CAM-01）/事件编号（EV-1123-01）。</div>
       <div class="muted">仅基于内置模拟数据作答 · 无数据则说明无法判断 · 不提供控制/审批/外部操作</div></div>`;
@@ -571,7 +621,7 @@
       </aside>
       <div id="main">
         <header id="topbar">
-          <div class="top-road">${icon('road', 15)} A高速示范路段 <span class="tag plain">K0+000 — K58+000</span></div>
+          <div class="top-road road-default">${icon('road', 15)} A高速示范路段 <span class="tag plain">K0+000 — K58+000</span></div>
           <div class="top-search">${icon('search', 14)}<input id="top-search-input" placeholder="搜索设备编号 / 名称 / 桩号，回车检索"></div>
           <div class="top-spacer"></div>
           <div class="top-clock" id="top-clock"></div>
@@ -607,7 +657,7 @@
           <input class="inp" id="rp-input" placeholder="输入问题 / 设备编码 / 事件编号…" autocomplete="off">
           <button class="btn primary" id="rp-send">${icon('ai', 14)} 分析</button>
         </div>
-        <div class="rp-note">仅基于内置模拟数据 · 关联≠因果 · 不提供控制/审批/外部操作</div>
+        <div class="rp-note">${window.PersonalQwen ? '个人千问会话 · 提问和相关演示数据将发送至阿里云' : '仅基于内置模拟数据 · 关联≠因果 · 不提供控制/审批/外部操作'}</div>
       </div>`;
     document.getElementById('modal-mask').addEventListener('click', ev => { if (ev.target.id === 'modal-mask') closeModal(); });
     document.addEventListener('keydown', ev => {
@@ -624,7 +674,7 @@
   window.Pages = Pages;
   window.UI = {
     icon, go, render, openDrawer, closeDrawer, modal, closeModal, toast, copy,
-    statusTag, levelTag, catTag, demoBadge, pageHead, kpi, esc, table, openDevice, openAlarm,
+    statusTag, levelTag, catTag, demoBadge, pageHead, kpi, esc, table, openDevice, openAlarm, openRecentAlarms, openEvent,
     paramTemplate, boot, get role() { return role; }, NAV
   };
 })();

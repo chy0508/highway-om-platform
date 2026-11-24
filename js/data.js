@@ -490,13 +490,13 @@
   /* ---------- 现场任务与资源 ---------- */
   const tasks = [
     { id: 'FT-01', tunnel: '青岭隧道', km: 18.5, asset: 'JF-01', type: '风机季度检测', items: '振动/电流/绝缘检测', duration: 2.0, skill: '机电检测·中级', instrument: '振动分析仪+绝缘电阻表', window: '周三 09:00—12:00', traffic: '需封闭北洞检修道', source: '设备检测周期', group: 'A' },
-    { id: 'FT-02', tunnel: '青岭隧道', km: 18.75, asset: 'L-CIR-03', type: '照明回路核查', items: '回路绝缘/断路器核查', duration: 1.5, skill: '电工作业·高压证', instrument: '绝缘电阻表+万用表', window: '周三 09:00—12:00', traffic: '需封闭北洞检修道', source: '诊断事件 EV-1123-02', group: 'A' },
-    { id: 'FT-03', tunnel: '青岭隧道', km: 18.5, asset: 'SW-12', type: '光链路排查', items: '光功率测试/熔接检查', duration: 1.0, skill: '通信维护·光缆证', instrument: 'OTDR+光功率计', window: '周三 09:00—14:00', traffic: '检修道作业', source: '诊断事件 EV-1123-01', group: 'B' },
-    { id: 'FT-04', tunnel: '南岭隧道', km: 32.1, asset: 'TUN-104', type: '照明回路绝缘核查', items: '绝缘检测/接线盒检查', duration: 1.5, skill: '电工作业·高压证', instrument: '绝缘电阻表+万用表', window: '周三 13:00—17:00', traffic: '需封闭北洞检修道', source: '诊断事件 EV-1122-05', group: 'A' },
+    { id: 'FT-02', tunnel: '青岭隧道', km: 18.75, asset: 'L-CIR-03', type: '照明回路核查', items: '回路绝缘/断路器核查', duration: 1.5, skill: '电工作业·高压证', instrument: '绝缘电阻表+万用表', window: '周三 09:00—12:00', traffic: '需封闭北洞检修道', eventId: 'EV-1123-02', group: 'A' },
+    { id: 'FT-03', tunnel: '青岭隧道', km: 18.5, asset: 'SW-12', type: '光链路排查', items: '光功率测试/熔接检查', duration: 1.0, skill: '通信维护·光缆证', instrument: 'OTDR+光功率计', window: '周三 09:00—14:00', traffic: '检修道作业', eventId: 'EV-1123-01', group: 'B' },
+    { id: 'FT-04', tunnel: '南岭隧道', km: 32.1, asset: 'TUN-104', type: '照明回路绝缘核查', items: '绝缘检测/接线盒检查', duration: 1.5, skill: '电工作业·高压证', instrument: '绝缘电阻表+万用表', window: '周三 13:00—17:00', traffic: '需封闭北洞检修道', eventId: 'EV-1122-05', group: 'A' },
     { id: 'FT-05', tunnel: '南岭隧道', km: 32.6, asset: 'COVI-01', type: 'CO/VI标定', items: '标气标定/光路清洁', duration: 1.0, skill: '机电检测·中级', instrument: '标定气体套件', window: '周三 13:00—17:00', traffic: '检修道作业', source: '设备检测周期', group: 'A' },
     { id: 'FT-06', tunnel: '云峰隧道', km: 42.0, asset: 'TUN-152', type: '风机控制反馈核查', items: '控制回路/反馈信号', duration: 1.5, skill: '机电检测·中级', instrument: '万用表+信号发生器', window: '周四 09:00—12:00', traffic: '需封闭北洞检修道', source: '设备异常建议', group: 'C' },
     { id: 'FT-07', tunnel: '石门隧道', km: 50.7, asset: 'TUN-171', type: '紧急电话巡检', items: '通话测试/线路检查', duration: 1.0, skill: '通信维护·光缆证', instrument: '查线仪+万用表', window: '周四 09:00—14:00', traffic: '检修道作业', source: '计划性检查', group: 'B' },
-    { id: 'FT-08', tunnel: '监控中心机房', km: 0.3, asset: 'BAT-01', type: 'UPS核对性放电', items: '容量测试/单体测量', duration: 3.0, skill: '电工作业·高压证', instrument: '放电仪+内阻测试仪', window: '周三 09:00—17:00', traffic: '无需交通管制', source: '诊断事件 EV-1121-03', group: 'D' }
+    { id: 'FT-08', tunnel: '监控中心机房', km: 0.3, asset: 'BAT-01', type: 'UPS核对性放电', items: '容量测试/单体测量', duration: 3.0, skill: '电工作业·高压证', instrument: '放电仪+内阻测试仪', window: '周三 09:00—17:00', traffic: '无需交通管制', eventId: 'EV-1121-03', group: 'D' }
   ];
   const teams = [
     { id: 'TM-A', name: '机电一班', skills: ['机电检测·中级', '电工作业·高压证'], members: 3, vehicle: '养护车 粤A·D021', available: '周三 全天', instruments: ['振动分析仪', '绝缘电阻表', '万用表', '标定气体套件'] },
@@ -575,6 +575,109 @@
     { id: 'CFG-07', name: '告警级别口径', type: '口径规则', cat: '全专业', updated: '2026-11-05', status: '启用', affected: 1286, detail: '严重/重要/一般/提示 四级，统一各厂家告警级别枚举。' }
   ];
 
+  const linkedTasks = tasks.filter(t => t.eventId);
+  const originalStatus = new Map(events.map(e => [e.id, e.status]));
+  const reviewKey = taskId => 'om-task-review-v1:' + taskId;
+  linkedTasks.forEach(t => { t.source = '诊断事件 ' + t.eventId; });
+  const cameraEvent = events.find(e => e.id === 'EV-1123-01');
+  const cameraTask = linkedTasks.find(t => t.eventId === cameraEvent.id);
+  const cameraAssets = [...cameraEvent.affected, 'SW-12', 'FIBER-07'];
+  const cameraBaseline = new Map(cameraAssets.map(code => [code, { status: byCode[code].status, lastComm: byCode[code].lastComm }]));
+  const incidentAlarms = alarms.filter(a => cameraBaseline.has(a.asset) && a.status === 'active');
+  const incidentLinks = relations.filter(r => cameraBaseline.has(r.source) && r.status !== 'normal')
+    .map(link => ({ link, initial: link.status }));
+  const catStats = {};
+
+  function validCameraChecks(checks) {
+    return checks && cameraEvent.affected.every(code => ['offline', 'frozen', 'live'].includes(checks.streams?.[code])) &&
+      ['playback', 'stable', 'link'].every(key => typeof checks[key] === 'boolean');
+  }
+  function cameraOutcome(checks) {
+    return validCameraChecks(checks) && checks.playback && checks.stable &&
+      cameraEvent.affected.every(code => checks.streams[code] === 'live') ? 'verified' : 'unresolved';
+  }
+  function describeCameraChecks(checks) {
+    if (!validCameraChecks(checks)) return '旧核验记录缺少逐路视频、录像回放及稳定观察结果，待补录。';
+    const frozen = cameraEvent.affected.filter(code => checks.streams[code] === 'frozen');
+    const offline = cameraEvent.affected.filter(code => checks.streams[code] === 'offline');
+    return [
+      frozen.length && (frozen.join('、') + ' 在线但画面冻结'),
+      offline.length && (offline.join('、') + ' 仍离线'),
+      '实时画面正常 ' + (cameraEvent.affected.length - frozen.length - offline.length) + '/4 路',
+      '录像回放' + (checks.playback ? '通过' : '待复核'),
+      '稳定观察' + (checks.stable ? '通过' : '待复核')
+    ].filter(Boolean).join(' · ');
+  }
+  function applyCameraChecks(review) {
+    const checks = validCameraChecks(review?.checks) ? review.checks : null;
+    cameraEvent.recoverySummary = review ? describeCameraChecks(checks) : '';
+    const hasSignal = checks && cameraEvent.affected.some(code => checks.streams[code] !== 'offline');
+    const uplinkUp = hasSignal || checks?.link;
+    for (const code of cameraAssets) {
+      const device = byCode[code], initial = cameraBaseline.get(code);
+      let status = initial.status;
+      if (cameraEvent.affected.includes(code) && checks) status = { live: 'online', frozen: 'warn', offline: 'offline' }[checks.streams[code]];
+      if ((code === 'SW-12' && uplinkUp) || (code === 'FIBER-07' && checks?.link)) status = 'online';
+      device.status = status;
+      device.lastComm = checks && status !== 'offline' ? NOW : initial.lastComm;
+    }
+    for (const alarm of incidentAlarms) {
+      const cleared = checks && (cameraEvent.affected.includes(alarm.asset) ? checks.streams[alarm.asset] !== 'offline' : byCode[alarm.asset].status === 'online');
+      alarm.status = cleared ? 'resolved' : 'active';
+      alarm.end = cleared ? NOW : null;
+    }
+    for (const { link, initial } of incidentLinks) {
+      const available = cameraEvent.affected.includes(link.source) ? checks && checks.streams[link.source] !== 'offline' :
+        link.source === 'SW-12' ? uplinkUp : checks?.link;
+      link.status = available ? 'normal' : initial;
+    }
+  }
+
+  function syncTaskReviews() {
+    for (const t of linkedTasks) {
+      let record;
+      try { record = JSON.parse(localStorage.getItem(reviewKey(t.id))); } catch {}
+      t.review = record && ['verified', 'unresolved'].includes(record.outcome) && typeof record.note === 'string' ? record : null;
+      if (t === cameraTask) {
+        if (t.review) t.review.outcome = cameraOutcome(t.review.checks);
+        applyCameraChecks(t.review);
+      }
+      const event = events.find(e => e.id === t.eventId);
+      event.status = t.review ? (t.review.outcome === 'verified' ? '已恢复' : '待复核') : originalStatus.get(event.id);
+    }
+    Object.keys(CATS).forEach(c => { catStats[c] = stats(devices.filter(d => d.cat === c)); });
+  }
+  function saveCameraReview(checks, note) {
+    if (!validCameraChecks(checks) || typeof note !== 'string') return false;
+    syncTaskReviews();
+    const previous = cameraTask.review;
+    if (previous?.outcome === 'verified') return false;
+    const history = Array.isArray(previous?.history) ? previous.history.slice() : [];
+    if (previous) {
+      const { outcome, time, checks, note } = previous;
+      history.push({ outcome, time, checks, note });
+    }
+    const record = { outcome: cameraOutcome(checks), time: new Date().toISOString(), checks, note: note.trim().slice(0, 500), history };
+    localStorage.setItem(reviewKey(cameraTask.id), JSON.stringify(record));
+    syncTaskReviews();
+    return true;
+  }
+  function saveTaskReview(task, outcome, note) {
+    if (task === cameraTask || !linkedTasks.includes(task) || !['verified', 'unresolved'].includes(outcome) || !note.trim()) return false;
+    const record = { outcome, note: note.trim().slice(0, 500), time: new Date().toISOString() };
+    localStorage.setItem(reviewKey(task.id), JSON.stringify(record));
+    syncTaskReviews();
+    return true;
+  }
+  function clearTaskReviews() {
+    linkedTasks.forEach(t => localStorage.removeItem(reviewKey(t.id)));
+    syncTaskReviews();
+  }
+  const isOpenMajor = e => e.level === '严重' && !e.status.includes('已恢复');
+  const recentAlarms = alarms.filter(a => a.start <= NOW && NOW - a.start < 24 * 3600000)
+    .sort((a, b) => b.start - a.start);
+  syncTaskReviews();
+
   /* ---------- 汇总统计 ---------- */
   function stats(list) {
     list = list || devices;
@@ -583,8 +686,6 @@
     s.onlineRate = (s.online / s.total * 100);
     return s;
   }
-  const catStats = {};
-  Object.keys(CATS).forEach(c => { catStats[c] = stats(devices.filter(d => d.cat === c)); });
 
   /* ---------- 导出 ---------- */
   window.DB = {
@@ -592,6 +693,6 @@
     devices, byCode, HERO, alarms, relations, events, sources, fieldMappings, qualityIssues,
     cells, tasks, teams, costMonths, costCats, costMonthly, costRecords, deviceCostRank, kpis, configs,
     stats, catStats, series, hoursAxis, rng, kmText, sectionOf, tunnelOf, fmtTime, ago,
-    todayAlarms: alarms.filter(a => NOW - a.start < 24 * 3600000).length
+    recentAlarms, isOpenMajor, syncTaskReviews, saveTaskReview, saveCameraReview, describeCameraChecks, clearTaskReviews
   };
 })();
