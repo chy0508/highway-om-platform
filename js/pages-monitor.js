@@ -147,7 +147,7 @@
         const hour = new Date(D.NOW.getTime()-(23-index)*3600000).getHours();
         return `<i data-hour="${index%4===0?String(hour).padStart(2,'0'):''}" style="--level:${Math.max(8,count/hourlyMax*100)}%" title="${hour}时 · ${count} 起"></i>`;
       }).join('');
-      el.innerHTML = `<div class="drive" data-boards="${matchMedia('(max-width: 900px)').matches ? 'off' : 'on'}">
+      el.innerHTML = `<div class="drive">
         <div id="dash-map" aria-label="A高速示范路段交互地图"></div>
         <header class="drive-head">
           <div class="drive-brand">
@@ -178,7 +178,7 @@
         toggle.textContent = open ? '收起看板' : '显示看板';
         toggle.setAttribute('aria-expanded', String(open));
       }
-      setBoards(drive.dataset.boards === 'on');
+      setBoards(true);
       toggle.onclick = () => setBoards(drive.dataset.boards !== 'on');
       drive.dataset.side = 'left';
       drive.querySelectorAll('[data-side]').forEach(button => button.onclick = () => {
