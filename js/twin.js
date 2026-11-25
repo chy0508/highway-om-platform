@@ -7,7 +7,24 @@
   'use strict';
   const D = window.DB;
   const instances = [];
-  const KM2X = km => (km - 29) * 10;
+  const overviewX = km => (km - (D.ROAD.start + D.ROAD.end) / 2) * 10;
+  // Allocate more of the overview to enclosed sections while keeping the route endpoints fixed.
+  // All models, labels and device locations use the same chainage mapping.
+  const stations = [
+    { km: D.ROAD.start, x: overviewX(D.ROAD.start) },
+    ...D.TUNNELS.flatMap(({ start, end }) => {
+      const middle = overviewX((start + end) / 2);
+      const halfLength = (end - start) * 13;
+      return [{ km: start, x: middle - halfLength }, { km: end, x: middle + halfLength }];
+    }),
+    { km: D.ROAD.end, x: overviewX(D.ROAD.end) }
+  ];
+  function KM2X(km) {
+    if (km <= D.ROAD.start || km >= D.ROAD.end) return overviewX(km);
+    const index = stations.findIndex(station => station.km >= km);
+    const before = stations[index - 1], after = stations[index];
+    return THREE.MathUtils.lerp(before.x, after.x, (km - before.km) / (after.km - before.km));
+  }
   const centerZ = x => 16 * Math.sin(x * 0.011) + 6 * Math.sin(x * 0.027 + 1.3);
   const routeCorridor = TwinCorridor.create(centerZ, D.TUNNELS.map(t => ({
     start: KM2X(t.start), end: KM2X(t.end)
@@ -88,7 +105,7 @@
       this.labelsOn = true;
       this.traffic = this.mode === 'macro' ? 26 : 30;
       this.fogAmt = 0.5;
-      this.pickables = []; this.pulses = []; this.spinners = []; this.cars = []; this.trails = [];
+      this.pickables = []; this.pulses = []; this.spinners = []; this.trails = [];
       this.labelSprites = []; this.equipGroups = {}; this.nightMats = []; this.dayLights = []; this.nightLights = [];
       this.clock = new THREE.Clock();
       this.lastInteract = 0;
@@ -262,8 +279,8 @@
       // 隧道山体 + 洞口 + 标签 + 下钻热区
       D.TUNNELS.forEach(t => {
         const cx = KM2X((t.start + t.end) / 2), cz = centerZ(cx);
-        const len = (t.end - t.start) * 10;
-        S.add(routeCorridor.portal(KM2X(t.start), false), routeCorridor.portal(KM2X(t.end), true));
+        const len = KM2X(t.end) - KM2X(t.start);
+        S.add(routeCorridor.portal(KM2X(t.start), false, t.name), routeCorridor.portal(KM2X(t.end), true, t.name));
         const spr = this.addLabel(t.name, t.hero ? '#4fd8f0' : '#cfe0f5', D.kmText(t.start) + '—' + D.kmText(t.end) + ' · 点击进入隧道孪生', cx, 52, cz, 10);
         spr.userData = { kind: 'tunnel', code: t.id, name: t.name };
         this.pickables.push(spr);
@@ -371,7 +388,9 @@
         this.taskGroup.add(spr); this.pickables.push(spr);
       });
       // 高架车流
-      this.buildCars(24, centerZ, 8.7);
+      this.routeTraffic = TwinTraffic.create(S, routeCorridor, 24);
+      this.routeTraffic.randomize(D.rng('macro-cars'));
+      this.routeTraffic.setCount(this.traffic);
       this.setRouteTerrain(this.opts.terrain !== false);
     }
 
@@ -685,19 +704,6 @@
       });
       this.addLabel(t.name + ' · 隧道数字孪生（洞内机电）', '#4fd8f0', D.kmText(t.start) + '—' + D.kmText(t.end) + ' · 长' + t.length + 'm · 三维模型', 0, 20, 0, 7.5);
       this.buildCarsTunnel(10);
-    }
-    buildCars(n, zFn, y) {
-      const g = geo('car', () => new THREE.BoxGeometry(2.6, 1.1, 1.3));
-      const mk = (color, dir, off) => {
-        const mesh = new THREE.InstancedMesh(g, new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.35 }), Math.floor(n / 2));
-        this.scene.add(mesh);
-        const r = D.rng('cars' + dir);
-        const list = [];
-        for (let i = 0; i < Math.floor(n / 2); i++) list.push({ x: -290 + r() * 580, v: (14 + r() * 16) * dir, off });
-        mesh.count = Math.min(Math.floor(this.traffic / 2), Math.floor(n / 2));
-        this.cars.push({ mesh, list, zFn, dir, y: y || 0.75, max: Math.floor(n / 2) });
-      };
-      mk(0xcfe4ff, 1, -1.7); mk(0xffc46b, -1, 1.7);
     }
     buildCarsTunnel(n) {
       const THREE = this.three || window.THREE;
@@ -1037,7 +1043,7 @@
     setTraffic(n) {
       this.traffic = n;
       this.trails.forEach(tr => { tr.mesh.count = Math.min(n, tr.max); });
-      this.cars.forEach(c => { c.mesh.count = Math.min(Math.floor(n / 2), c.max); });
+      this.routeTraffic?.setCount(n);
       if (this.carsTunnel) this.carsTunnel.mesh.count = Math.min(Math.round(n / 3), this.carsTunnel.max);
     }
     setFog(v) { this.fogAmt = v; if (!this.fallbackEl) this.applyFog(); }
@@ -1124,7 +1130,7 @@
     randomize() {
       const r = D.rng('rnd' + Date.now());
       this.trails.forEach(tr => tr.list.forEach(c => { c.x = -130 + r() * 260; c.v = (24 + r() * 24) * tr.dir; }));
-      this.cars.forEach(c => c.list.forEach(car => { car.x = -290 + r() * 580; car.v = (14 + r() * 18) * c.dir; }));
+      this.routeTraffic?.randomize(r);
       this.lastInteract = performance.now();
     }
     screenshot() {
@@ -1177,16 +1183,7 @@
         }
         tr.mesh.instanceMatrix.needsUpdate = true;
       });
-      this.cars.forEach(c => {
-        for (let i = 0; i < c.mesh.count; i++) {
-          const car = c.list[i];
-          car.x += car.v * dt;
-          if (car.x > 292) car.x = -292; if (car.x < -292) car.x = 292;
-          m4.makeTranslation(car.x, c.y, c.zFn(car.x) + car.off);
-          c.mesh.setMatrixAt(i, m4);
-        }
-        c.mesh.instanceMatrix.needsUpdate = true;
-      });
+      this.routeTraffic?.advance(dt);
       if (this.carsTunnel) {
         for (let i = 0; i < this.carsTunnel.mesh.count; i++) {
           const car = this.carsTunnel.list[i];

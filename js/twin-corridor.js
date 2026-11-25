@@ -7,9 +7,9 @@
   const roadY = 8;
   const extent = 292;
   const boreCenters = [-3.33, 3.33];
-  const boreRadius = 2.77;
-  const boreWall = 2.59;
-  const boreRise = 2.24;
+  const boreRadius = 2.87;
+  const boreWall = 1.08;
+  const boreRise = boreRadius;
   const portalY = roadY - .06;
 
   function reliefAt(x, z) {
@@ -21,7 +21,7 @@
   }
 
   function create(center, tunnels) {
-    const river = x => 44 * Math.sin((x + 30) * .016 + .5) + 23 * Math.sin((x + 30) * .029);
+    const river = x => 44 * Math.sin((x + 32) * .016 + .5) + 23 * Math.sin((x + 32) * .029);
     const riverWidth = x => 7.6 + 2.5 * Math.cos(x * .023) + 1.6 * Math.sin(x * .083);
     const waterY = -.85;
 
@@ -136,46 +136,115 @@
       return group;
     }
 
+    function needleCanopy() {
+      const positions = [], colors = [];
+      const branchEdge = [[0, 0], [.23, .74], [.40, .94], [.51, .58], [.59, .82],
+        [.76, .43], [1, 0], [.77, -.44], [.61, -.78], [.49, -.49], [.39, -.92], [.22, -.71]];
+      const layers = [[.20, 1.22, 6], [.69, 1.06, 6], [1.16, .91, 5], [1.65, .74, 5], [2.11, .56, 4],
+        [2.53, .36, 4], [2.86, .19, 3]];
+      layers.forEach(([height, reach, count], layer) => {
+        for (let i = 0; i < count; i++) {
+          const angle = i * Math.PI * 2 / count + layer * 1.67;
+          const length = reach * (1 + .17 * Math.sin(angle * 2.4 + layer));
+          const lift = .32 - .055 * layer + .085 * Math.sin(angle + layer);
+          const breadth = reach * (.44 + .055 * Math.cos(angle * 3.1 + layer));
+          const cosine = Math.cos(angle), sine = Math.sin(angle);
+          const branchPoint = (along, side, ridge = 0) => [
+            .073 * height + length * along * cosine - breadth * side * sine,
+            height + lift * (1 - along) - .15 * along + ridge,
+            length * along * sine + breadth * side * cosine
+          ];
+          const ridge = branchPoint(.43, 0, .29 - .024 * layer);
+          const leafEdge = branchEdge.map(([along, side]) => branchPoint(along, side));
+          for (let k = 0; k < leafEdge.length; k++) {
+            positions.push(...leafEdge[k], ...leafEdge[(k + 1) % leafEdge.length], ...ridge);
+            const shade = .74 + .025 * layer + .062 * Math.cos(angle + k * 1.7);
+            colors.push(shade, shade, shade * .97, shade, shade, shade * .97, shade + .13, shade + .15, shade + .106);
+          }
+        }
+      });
+      const geometry = new THREE.BufferGeometry();
+      geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+      geometry.computeVertexNormals();
+      geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+      return geometry;
+    }
+
+    function leafCanopy(clusters) {
+      const shell = new THREE.IcosahedronGeometry(1, 1);
+      const shape = shell.attributes.position, shellNormals = shell.attributes.normal;
+      const vertices = [], normals = [], colors = [], normal = new THREE.Vector3();
+      for (const [dx, dy, dz, sx, sy, sz, brightness] of clusters) {
+        for (let i = 0; i < shape.count; i++) {
+          const x = shape.getX(i), y = shape.getY(i), z = shape.getZ(i);
+          const irregularity = .99 + .086 * Math.sin(x * 8.4 + y * 8.7 - z * 7.3 + dx * 2.8);
+          vertices.push(dx + sx * x * irregularity, dy + sy * y * irregularity, dz + sz * z * irregularity);
+          normal.set(shellNormals.getX(i) / sx, shellNormals.getY(i) / sy, shellNormals.getZ(i) / sz).normalize();
+          normals.push(normal.x, normal.y, normal.z);
+          const shade = brightness * (.89 + .08 * y + .042 * Math.sin(z * 7 + x * 5));
+          colors.push(shade, shade * 1.02, shade * .94);
+        }
+      }
+      shell.dispose();
+      const geometry = new THREE.BufferGeometry();
+      geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+      geometry.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
+      geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+      return geometry;
+    }
+
     function forest(rng) {
       const group = new THREE.Group();
       group.name = '河谷林地';
       const spots = [];
-      for (let i = 0; i < 6100 && spots.length < 1830; i++) {
-        const x = -335 + rng() * 670;
-        const z = center(x) + (rng() < .5 ? -1 : 1) * (22 + 176 * rng());
+      for (let i = 0; i < 7200 && spots.length < 1780; i++) {
+        const x = -365 + rng() * 730;
+        const z = center(x) + (rng() < .5 ? -1 : 1) * (23 + 187 * rng());
         const h = height(x, z);
-        const openRock = slope(x, z, h) > 1.06;
-        const clump = .25 + .66 * smooth(Math.sin(x * .062 + z * .051) + .63 * Math.sin(x * .124 - z * .079), -.65, .9);
-        if (h > .8 && rng() < clump * (openRock ? .16 : 1)) {
-          spots.push({ x, z, h, size: .58 + 1.33 * rng(), fir: rng() > .51, hue: rng(), yaw: 6.28 * rng() });
+        const soil = 1 - smooth(slope(x, z, h), .74, 1.32);
+        const clump = .09 + .83 * smooth(Math.sin(x * .081 + z * .042) + .72 * Math.sin(x * .131 - z * .077), -.49, 1.05);
+        if (h > 1.2 && rng() < clump * soil) {
+          const kind = rng() < (h > 30 ? .66 : .34) ? 0 : rng() < .56 ? 1 : 2;
+          spots.push({ x, z, h, kind, size: .55 + 1.07 * rng(), hue: rng(), yaw: Math.PI * 2 * rng() });
         }
       }
-      const trunk = new THREE.InstancedMesh(new THREE.CylinderGeometry(.15, .28, 2.6, 6),
-        new THREE.MeshStandardMaterial({ color: linear(0x665240), roughness: 1 }), spots.length);
-      const crown = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: .98 });
-      const firProfile = [[0, 0], [1.21, .25], [.71, .78], [1.07, .77], [.65, 1.42],
-        [.84, 1.37], [.43, 2.02], [.55, 1.98], [0, 3.12]];
-      const fir = new THREE.InstancedMesh(new THREE.LatheGeometry(firProfile.map(([x, y]) => new THREE.Vector2(x, y)), 7),
-        crown, spots.filter(s => s.fir).length);
-      const broadleaf = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1, 1), crown.clone(), spots.length - fir.count);
+      const trunk = new THREE.InstancedMesh(new THREE.CylinderGeometry(.095, .2, 2.15, 6),
+        new THREE.MeshStandardMaterial({ color: linear(0x655748), roughness: 1 }), spots.length);
+      const crown = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: .98, vertexColors: true });
+      const needles = crown.clone();
+      needles.side = THREE.DoubleSide;
+      const crowns = [
+        needleCanopy(),
+        leafCanopy([
+          [0, .88, -.07, .91, .72, .88, .98], [-.84, .49, .31, .61, .47, .63, .88],
+          [.86, .38, -.27, .57, .49, .59, .86], [.16, .45, .88, .58, .51, .65, .93],
+          [-.12, .70, -.82, .61, .48, .58, .91], [.34, 1.31, .23, .55, .47, .53, 1.12]
+        ]),
+        leafCanopy([
+          [0, .98, 0, .74, .82, .76, .97], [-.61, .54, -.45, .54, .54, .49, .9],
+          [.64, .74, .35, .56, .62, .56, .9], [-.29, .68, .68, .54, .57, .55, .94],
+          [.23, .88, -.63, .54, .53, .48, .96], [-.13, 1.58, .17, .52, .52, .49, 1.08]
+        ])
+      ].map((geometry, kind) => new THREE.InstancedMesh(geometry, kind === 0 ? needles : crown,
+        spots.filter(s => s.kind === kind).length));
       const transform = new THREE.Object3D(), tint = new THREE.Color();
-      let firIndex = 0, leafIndex = 0;
-      spots.forEach(({ x, z, h, size, fir: needle, hue, yaw }, i) => {
+      const indices = [0, 0, 0];
+      spots.forEach(({ x, z, h, size, kind, hue, yaw }, i) => {
         transform.rotation.y = yaw;
-        transform.position.set(x, h + 1.02 * size, z);
+        transform.position.set(x, h + .92 * size, z);
         transform.scale.set(size, size, size);
         transform.updateMatrix();
         trunk.setMatrixAt(i, transform.matrix);
-        const mesh = needle ? fir : broadleaf;
-        const index = needle ? firIndex++ : leafIndex++;
-        transform.position.y = h + (needle ? 1.12 : 2.45) * size;
-        transform.scale.set((needle ? 1.09 : 1.64) * size, (needle ? 1.18 : 1.32) * size, (needle ? 1 : 1.37) * size);
+        const mesh = crowns[kind];
+        const index = indices[kind]++;
+        transform.position.y = h + (kind === 0 ? .86 : 1.43) * size;
+        transform.scale.set((.83 + .23 * hue) * size, (1.12 - .15 * hue) * size, size);
         transform.updateMatrix();
         mesh.setMatrixAt(index, transform.matrix);
-        tint.setHSL(needle ? .26 + .05 * hue : .19 + .097 * hue, .25 + .12 * hue, .19 + .105 * hue);
+        tint.setHSL([.273, .227, .195][kind] + .031 * hue, .23 + .13 * hue, .24 + .12 * hue);
         mesh.setColorAt(index, tint.convertSRGBToLinear());
       });
-      group.add(trunk, fir, broadleaf);
+      group.add(trunk, ...crowns);
       return group;
     }
 
@@ -186,6 +255,12 @@
     function lateralPoint(x, lateral, y) {
       const angle = heading(x);
       return [x - Math.sin(angle) * lateral, y, center(x) + Math.cos(angle) * lateral];
+    }
+
+    function trafficMatrix(x, lateral, direction, matrix) {
+      const angle = heading(x);
+      matrix.makeRotationY(-angle + (direction < 0 ? Math.PI : 0));
+      matrix.setPosition(x - Math.sin(angle) * lateral, roadY, center(x) + Math.cos(angle) * lateral);
     }
 
     function strip(intervals, profile, material, colorAt = null) {
@@ -272,12 +347,19 @@
       const lining = concrete(0xffffff);
       lining.vertexColors = true;
       const light = linear(0xa6a6a0), shadow = linear(0x525654), tint = new THREE.Color();
-      const lightFixture = new THREE.MeshBasicMaterial({ color: linear(0xffdfa8), side: THREE.DoubleSide });
+      const lightFixture = new THREE.MeshBasicMaterial({ color: linear(0xffebc2), side: THREE.DoubleSide });
       const walkway = concrete(0x7d7d74);
+      const wallPanel = concrete(0xb6bcb5);
+      const guidanceStripe = concrete(0x609999);
+      const panelJoint = concrete(0x777d78);
+      const tray = concrete(0x505651);
+      const bracket = concrete(0x343d40);
       for (const { start, end } of tunnels) {
         const interval = [[start - .12, end + .12]];
-        const fixtures = [];
-        for (let x = start + 1.45; x < end - .75; x += 2.4) fixtures.push([x, x + .5]);
+        const furnish = [[start + .34, end - .34]];
+        const fixtures = [], seams = [];
+        for (let x = start + 1.25; x < end - .9; x += 2.72) fixtures.push([x, x + .48]);
+        for (let x = start + 1; x < end - .5; x += 1.85) seams.push([x, x + .034]);
         for (const center of boreCenters) {
           const profile = [[center - boreRadius, roadY - .06]];
           for (let i = 0; i <= 16; i++) {
@@ -288,15 +370,30 @@
           const tunnel = new THREE.Group();
           tunnel.add(strip(interval, profile, lining, (x, from, to, y) => {
             const depth = smooth(Math.min(x - from, to - x), .4, 5);
-            const crown = smooth(y, roadY + .6, roadY + 4.8);
-            return tint.copy(light).lerp(shadow, .3 + .56 * depth + .12 * crown).toArray();
+            const crown = smooth(y, roadY + .6, portalY + boreWall + boreRise);
+            return tint.copy(light).lerp(shadow, .26 + .5 * depth + .09 * crown).toArray();
           }));
           for (const side of [-1, 1]) {
-            const edge = center + side * (boreRadius - .08);
-            tunnel.add(strip(interval, [[edge - side * .27, roadY + .14], [edge, roadY + .14]], walkway));
+            const wall = center + side * (boreRadius - .033);
+            tunnel.add(strip(furnish, [[wall - side * .37, roadY + .14], [wall, roadY + .14]], walkway));
+            tunnel.add(strip(furnish, [[wall, roadY + .14], [wall, roadY + .99]], wallPanel));
+            const stripe = wall - side * .016;
+            tunnel.add(strip(furnish, [[stripe, roadY + .47], [stripe, roadY + .56]], guidanceStripe));
+            const joint = wall - side * .027;
+            tunnel.add(strip(seams, [[joint, roadY + .15], [joint, roadY + .98]], panelJoint));
           }
-          if (fixtures.length) {
-            tunnel.add(strip(fixtures, [[center - .13, roadY + 4.28], [center + .13, roadY + 4.28]], lightFixture));
+          const ceiling = portalY + boreWall + boreRise;
+          tunnel.add(strip(furnish, [[center - .12, ceiling - .04], [center - .12, ceiling - .15],
+            [center + .12, ceiling - .15], [center + .12, ceiling - .04]], tray));
+          for (const offset of [-.88, .88]) {
+            const x = center + offset;
+            const roof = portalY + boreWall + Math.sqrt(boreRise ** 2 - offset ** 2);
+            const body = roof - .27;
+            tunnel.add(strip(fixtures, [[x - .11, roof - .06], [x - .15, body],
+              [x + .15, body], [x + .11, roof - .06]], bracket));
+            const lamp = strip(fixtures, [[x - .106, body - .012], [x + .106, body - .012]], lightFixture);
+            lamp.name = '分列顶灯';
+            tunnel.add(lamp);
           }
           interiors.add(tunnel);
         }
@@ -313,35 +410,66 @@
       return contour;
     }
 
-    function portal(x, downstream) {
+    function portalSign(name) {
+      const canvas = document.createElement('canvas');
+      canvas.width = 256;
+      canvas.height = 56;
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#263c47';
+      ctx.fillRect(0, 0, 256, 56);
+      ctx.strokeStyle = '#829398';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(2, 2, 252, 52);
+      ctx.font = '600 30px "Microsoft YaHei", sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = '#f3f1e6';
+      ctx.fillText(name, 128, 29, 234);
+      const texture = new THREE.CanvasTexture(canvas);
+      texture.encoding = THREE.sRGBEncoding;
+      return new THREE.MeshBasicMaterial({ map: texture });
+    }
+
+    function portal(x, downstream, name) {
       const group = new THREE.Group();
       group.name = '隧道双洞门';
       group.position.set(x, portalY, center(x));
       group.rotation.y = -Math.PI / 2 - heading(x) + (downstream ? Math.PI : 0);
-      const front = new THREE.Shape();
-      front.moveTo(-7.8, -.35); front.lineTo(7.8, -.35); front.lineTo(6.88, 5.58);
-      front.lineTo(5.33, 6.64); front.lineTo(-5.33, 6.64); front.lineTo(-6.88, 5.58); front.closePath();
-      boreCenters.forEach(cx => front.holes.push(bore(new THREE.Path(), cx, boreRadius + .11, -.11, boreWall, boreRise + .09)));
-      const face = new THREE.Mesh(new THREE.ExtrudeGeometry(front, { depth: 1.65, curveSegments: 14, bevelEnabled: false }), concrete(0xa8a69b));
-      face.position.z = -1.3;
-      group.add(face);
+      const face = concrete(0xb2b2a7), reveal = concrete(0x87908b);
+      const signMaterial = portalSign(name);
       for (const cx of boreCenters) {
-        const trim = bore(new THREE.Shape(), cx, 3.05, -.11, 2.68, 2.47);
-        trim.holes.push(bore(new THREE.Path(), cx, boreRadius, .015, boreWall, boreRise));
-        const rim = new THREE.Mesh(new THREE.ExtrudeGeometry(trim, { depth: .34, curveSegments: 14, bevelEnabled: false }), concrete(0xd9d1bb));
-        rim.position.z = .28;
-        group.add(rim);
+        const collar = bore(new THREE.Shape(), cx, 3.19, -.43, boreWall + .095, boreRise + .36);
+        collar.holes.push(bore(new THREE.Path(), cx, boreRadius, -.055, boreWall, boreRise));
+        const arch = new THREE.Mesh(new THREE.ExtrudeGeometry(collar,
+          { depth: 1.54, curveSegments: 22, bevelEnabled: false, material: 0, extrudeMaterial: 1 }), [face, reveal]);
+        arch.name = '独立拱形洞门';
+        arch.position.z = -.86;
+        group.add(arch);
+        const sign = new THREE.Mesh(new THREE.PlaneGeometry(1.43, .31), signMaterial);
+        sign.position.set(cx, boreWall + boreRise + .183, .699);
+        group.add(sign);
       }
+      const walls = new THREE.Group();
+      walls.name = '阶梯式翼墙';
+      const wallMaterial = concrete(0x9d9e93), coping = concrete(0xb2b2a5);
+      const steps = [[.05, 1.65, 2.06], [1.65, 3.28, 1.49], [3.28, 4.93, .95], [4.93, 6.53, .62]];
       for (const side of [-1, 1]) {
-        const wing = new THREE.Mesh(new THREE.BoxGeometry(.52, 3.3, 4.3), concrete(0x9b9484));
-        wing.position.set(side * 7.7, 1.37, 1.23);
-        wing.rotation.y = side * .36;
-        group.add(wing);
+        for (const [from, to, height] of steps) {
+          const length = to - from, center = (to + from) / 2, lateral = side * (6.64 + center * .13);
+          const wing = new THREE.Mesh(new THREE.BoxGeometry(.47, height + .22, length + .025), wallMaterial);
+          wing.position.set(lateral, height / 2 - .11, center);
+          wing.rotation.y = side * .13;
+          const cap = new THREE.Mesh(new THREE.BoxGeometry(.53, .11, length + .025), coping);
+          cap.position.set(lateral, height - .16, center);
+          cap.rotation.y = wing.rotation.y;
+          walls.add(wing, cap);
+        }
       }
+      group.add(walls);
       return group;
     }
 
-    return { height, landscape, forest, engineering, portal };
+    return { height, landscape, forest, engineering, portal, trafficMatrix, trafficExtent: extent };
   }
 
   window.TwinCorridor = { create };
