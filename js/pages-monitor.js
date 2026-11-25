@@ -129,13 +129,6 @@
         ['设备在线率', stats.onlineRate.toFixed(1),'%','diag','devices'],
         ['待处置事件', pending,'起','bell','diagnosis']
       ];
-      const navKeys = ['dashboard','gis','devices','diagnosis','tasks','fan'];
-      const visibleKeys = new Set(Array.from(document.querySelectorAll('#nav [data-page],#nav [data-grp]'),
-        item=>item.dataset.page || item.dataset.grp));
-      const navigation = navKeys.filter(key=>key==='dashboard'||visibleKeys.has(key)).map(key=>{
-        const item = U.NAV.find(entry=>entry.key===key);
-        return `<a href="#/${key}"${key==='dashboard'?' aria-current="page"':''}>${U.icon(item.icon,14)}${item.name}</a>`;
-      }).join('');
       const hours = new Array(24).fill(0);
       D.alarms.forEach(alarm => {
         const elapsed = Math.floor((D.NOW-alarm.start)/3600000);
@@ -149,15 +142,6 @@
       }).join('');
       el.innerHTML = `<div class="drive">
         <div id="dash-map" aria-label="A高速交互地图"></div>
-        <header class="drive-head">
-          <div class="drive-brand">
-            <button class="drive-menu" type="button" aria-label="业务导航" aria-controls="sidebar" aria-expanded="false">☰</button>
-            <img src="assets/platform-logo.svg" width="24" height="24" alt="" class="drive-brand-mark"><h1>机电智能运维平台 <span>· 综合驾驶舱</span></h1>
-          </div>
-          <nav class="drive-top-nav" aria-label="驾驶舱业务导航">${navigation}</nav>
-          <div class="drive-actions"><button class="drive-toggle" type="button"></button></div>
-        </header>
-        <button type="button" class="drive-nav-mask" aria-label="关闭业务导航"></button>
         <div class="drive-mobile-tabs"><button data-side="left" aria-pressed="true">路线与设备</button><button data-side="right" aria-pressed="false">处置与能效</button></div>
         <section class="drive-kpis" aria-label="${D.ROAD.name}运行指标">${metrics.map(([label,value,unit,icon,link])=>`
           <a href="#/${link}">${U.icon(icon,17)}<div><b>${value}</b><small>${unit}</small><span>${label}</span></div></a>`).join('')}</section>
@@ -172,27 +156,18 @@
         U.modal('隧道照明预警视频',
           '<video controls autoplay playsinline preload="metadata" style="display:block;width:100%;max-height:68vh;background:#071324" src="assets/tunnel-lighting-demo.mp4"></video>');
       });
-      const toggle = drive.querySelector('.drive-toggle');
       function setBoards(open) {
+        U.cockpitPanelState().lists = open;
         drive.dataset.boards = open ? 'on' : 'off';
-        toggle.textContent = open ? '收起看板' : '显示看板';
-        toggle.setAttribute('aria-expanded', String(open));
+        U.syncBoardToggle();
       }
-      setBoards(true);
-      toggle.onclick = () => setBoards(drive.dataset.boards !== 'on');
+      setBoards(U.cockpitPanelState().lists ?? true);
+      U.bindBoardToggle(setBoards);
       drive.dataset.side = 'left';
       drive.querySelectorAll('[data-side]').forEach(button => button.onclick = () => {
         drive.dataset.side = button.dataset.side;
         drive.querySelectorAll('[data-side]').forEach(item => item.setAttribute('aria-pressed', String(item === button)));
       });
-      const menu = drive.querySelector('.drive-menu');
-      function showMenu(open) {
-        document.body.classList.toggle('drive-nav-open', open);
-        menu.setAttribute('aria-expanded', String(open));
-        if (!open) menu.focus();
-      }
-      menu.onclick = () => showMenu(!document.body.classList.contains('drive-nav-open'));
-      drive.querySelector('.drive-nav-mask').onclick = () => showMenu(false);
       Twin.geoMap(el.querySelector('#dash-map'), {
         fill: true,
         onSelect(sel) {
@@ -207,19 +182,110 @@
   };
 
   /* ================= 数字孪生一张图 · 三级数字孪生 ================= */
+  function bindTwinHelp(box) {
+    const help = box.querySelector('.twin-help');
+    const button = help.querySelector('.twin-help-toggle');
+    const content = help.querySelector('.twin-help-content');
+    let pinned = false;
+    let dismissal = null;
+
+    function close() {
+      pinned = false;
+      content.hidden = true;
+      button.setAttribute('aria-expanded', 'false');
+      dismissal?.abort();
+      dismissal = null;
+    }
+
+    function open() {
+      if (!content.hidden) return;
+      content.hidden = false;
+      button.setAttribute('aria-expanded', 'true');
+      dismissal = new AbortController();
+      const options = { signal: dismissal.signal };
+      document.addEventListener('keydown', event => {
+        if (event.key === 'Escape') close();
+      }, options);
+      document.addEventListener('pointerdown', event => {
+        if (!help.contains(event.target)) close();
+      }, options);
+      window.addEventListener('hashchange', close, options);
+    }
+
+    help.addEventListener('pointerenter', event => {
+      if (event.pointerType !== 'touch') open();
+    });
+    help.addEventListener('pointerleave', event => {
+      if (event.pointerType !== 'touch' && !pinned && !button.matches(':focus-visible')) close();
+    });
+    button.addEventListener('focus', () => {
+      if (button.matches(':focus-visible')) open();
+    });
+    button.addEventListener('blur', () => {
+      if (!pinned && !help.matches(':hover')) close();
+    });
+    button.addEventListener('click', event => {
+      if (pinned || (event.detail === 0 && !content.hidden)) {
+        close();
+      } else {
+        pinned = true;
+        open();
+      }
+    });
+  }
+
+  const sceneEnvironment = { season: 'summer', weather: 'clear', time: 'day' };
+  const sceneSeasons = [['spring', '春季'], ['summer', '夏季'], ['autumn', '秋季'], ['winter', '冬季']];
+  const sceneWeather = [['clear', '晴天'], ['cloudy', '阴天'], ['rain', '雨天'], ['snow', '雪天'], ['fog', '雾天']];
+  function sceneTimeButtons(time) {
+    return [['day', '白昼'], ['night', '夜间']].map(([value, label]) =>
+      `<button type="button" class="seg${time === value ? ' on' : ''}" data-t="${value}" aria-pressed="${time === value}">${label}</button>`).join('');
+  }
+  function sceneSettings() {
+    const options = (values, current) => values.map(([value, label]) =>
+      `<option value="${value}"${value === current ? ' selected' : ''}>${label}</option>`).join('');
+    const views = [['overview', '全景'], ['top', '俯瞰'], ['side', '侧视'], ['close', '近景']];
+    return `<aside class="gis-scene-settings" id="gis-scene-settings" aria-labelledby="gis-settings-title" hidden>
+      <header class="gis-settings-head"><h2 id="gis-settings-title">环境与漫游</h2>
+        <button type="button" class="hud-btn gis-overlay-close" data-gis-close="environment" aria-label="收起环境与漫游">收起</button>
+      </header>
+      <div class="gis-settings-body">
+        <section aria-label="场景环境">
+          <div class="gis-settings-row"><label for="gis-season">季节</label><select class="sel" id="gis-season">${options(sceneSeasons, sceneEnvironment.season)}</select></div>
+          <div class="gis-settings-row"><label for="gis-weather">天气</label><select class="sel" id="gis-weather">${options(sceneWeather, sceneEnvironment.weather)}</select></div>
+          <div class="gis-settings-row"><span>昼夜</span><div class="btn-group" id="gis-time" role="group" aria-label="选择昼夜">${sceneTimeButtons(sceneEnvironment.time)}</div></div>
+          <p class="gis-settings-note" id="gis-weather-scope" hidden></p>
+        </section>
+        <section aria-labelledby="gis-preset-title">
+          <h3 id="gis-preset-title">预设视角</h3>
+          <div class="gis-view-options">${views.map(([value, label]) => `<button type="button" class="hud-btn" data-view-preset="${value}" aria-pressed="${value === 'overview'}">${label}</button>`).join('')}</div>
+        </section>
+        <section aria-labelledby="gis-tour-title">
+          <h3 id="gis-tour-title">默认漫游</h3>
+          <div class="gis-settings-actions"><button type="button" class="hud-btn" id="gis-tour-play">${U.icon('play', 13)} 播放默认漫游</button>
+            <button type="button" class="hud-btn" id="gis-tour-stop" disabled>结束漫游</button></div>
+          <p class="gis-tour-status" id="gis-tour-status" role="status"></p>
+        </section>
+      </div>
+    </aside>`;
+  }
+
   P.gis = {
     title: '数字孪生一张图', group: '数字孪生一张图',
     render(el, params) {
       const bridgeView = params.view !== 'workbench' && (['bridge', 'songlan'].includes(params.view) || params.scope);
+      const screen = params.display === 'screen' && !bridgeView;
+      if (screen) document.body.classList.add('gis-screen-mode');
       const modes = [['macro', 'map', '宏观路网'], ['road', 'road', '路段孪生'], ['tunnel', 'cube', '隧道孪生'], ['room', 'db', '机房孪生']];
-      const heading = `<header class="gis-heading">
-        <div class="page-title">数字孪生一张图 · ${bridgeView ? '桥隧孪生' : params.mode === 'macro' ? '宏观路网' : '设备孪生'} ${U.demoBadge()}</div>
-        <div class="gis-toolbar" role="group" aria-label="孪生场景工具栏">
+      const sceneToolbar = `<div class="gis-toolbar${screen ? ' gis-scene-overlay' : ''}" role="group" aria-label="孪生场景工具栏">
           <div class="btn-group" id="gis-mode">${modes.map(([key, icon, label]) =>
             `<button type="button" class="seg" data-m="${key}" aria-pressed="false">${U.icon(icon, 13)} ${label}</button>`).join('')}</div>
           ${bridgeView || params.mode !== 'macro' ? '<select class="sel" id="gis-scene" aria-label="场景点位"></select>' : ''}
           ${bridgeView || params.mode === 'macro' ? '<button type="button" class="btn" id="gis-environment" role="switch" aria-label="地形环境"></button>' : ''}
-        </div></header>`;
+        </div>`;
+      const heading = screen ? '' : `<header class="gis-heading">
+        <div class="page-title">数字孪生一张图 · ${bridgeView ? '桥隧孪生' : params.mode === 'macro' ? '宏观路网' : '设备孪生'} ${U.demoBadge()}</div>
+        ${sceneToolbar}</header>`;
       if (bridgeView) {
         P.gis.renderBridge(el, params, heading);
         return;
@@ -239,10 +305,18 @@
       let terrain = params.environment !== 'off';
       let buildSeq = 0;
       const ROAD = Twin.ROAD_SCENES;
+      const compactQuery = screen ? U.compactCockpit : null;
+      const switchControl = (label, attributes, checked = true) => {
+        const cls = `switch${checked ? ' on' : ''}`;
+        return screen
+          ? `<button type="button" class="${cls}" role="switch" aria-label="${label}" aria-checked="${checked}" ${attributes}></button>`
+          : `<span class="${cls}" ${attributes}></span>`;
+      };
+      const equipControls = [['cam', '摄像机'], ['vms', '情报板'], ['fan', '射流风机'], ['light', '照明分区'], ['power', '供配电/检测']];
       el.innerHTML = heading +
         '<div class="page-desc gis-instructions">点选设备查看档案。拖拽旋转，滚轮缩放，右键平移。</div>' +
-        `<div class="flex">
-          <div style="width:232px;flex:0 0 232px" class="flex col">
+        `<div class="flex gis-stage">
+          <div class="flex col gis-stage-sidebar"${screen ? ' id="gis-screen-lists" role="region" aria-label="场景清单" hidden' : ' style="width:232px;flex:0 0 232px"'}>
             <div class="card dark-panel">
               <div class="card-h"><span class="card-t" id="layer-title">图层控制</span></div>
               <div class="card-b" id="gis-layers"></div>
@@ -261,65 +335,80 @@
               <div class="small" style="color:#7e95b8;line-height:1.8">点位颜色=专业类别；外圈红色=异常/离线；红色光柱=严重诊断事件；紫色点位=现场检测任务。</div>
               </div>
             </div>
-            <div class="card mt">
-              <div class="card-h"><span class="card-t">操作提示</span></div>
-              <div class="card-b small muted" style="line-height:1.9">左键拖拽 · 旋转视角<br>滚轮 · 缩放距离<br>右键/Shift拖拽 · 平移<br>单击热区 · 下钻孪生场景<br>单击设备 · 查看详情<br>空闲5秒 · 自动巡航</div>
-            </div>
           </div>
-          <div class="grow">
-            <div class="twin-wrap" id="twin-box" style="height:600px">
+          <div class="grow gis-stage-surface">
+            <div class="twin-wrap" id="twin-box"${screen ? '' : ' style="height:600px"'}>
+              ${screen ? '<div class="gis-scene-hud">' : ''}
               <div class="twin-hud">
+                ${screen ? `<button type="button" class="hud-btn gis-overlay-toggle" data-gis-overlay="lists" aria-controls="gis-screen-lists" aria-expanded="false">${U.icon('task', 13)} 场景清单</button>
+                <button type="button" class="hud-btn gis-overlay-toggle" data-gis-overlay="controls" aria-controls="gis-screen-controls" aria-expanded="false">${U.icon('cfg', 13)} 场景控制</button>
+                <button type="button" class="hud-btn gis-overlay-toggle" data-gis-overlay="environment" aria-controls="gis-scene-settings" aria-expanded="false">${U.icon('eye', 13)} 环境与漫游</button>` : ''}
                 <button class="hud-btn" id="hud-top">${U.icon('eye', 13)} 俯瞰</button>
                 <button class="hud-btn" id="hud-inside" style="display:none">${U.icon('play', 13)} 洞内视角</button>
                 <button class="hud-btn on" id="hud-auto">${U.icon('reset', 13)} 自动巡航</button>
               </div>
-              <div class="twin-hud-r"><span class="hud-live" id="hud-live" style="display:none"></span></div>
+              ${screen ? sceneToolbar : ''}
+              <div class="twin-hud-r">
+                <span class="hud-live" id="hud-live" style="display:none"></span>
+                <div class="twin-help">
+                  <button type="button" class="hud-btn twin-help-toggle" aria-label="操作提示" aria-controls="twin-help-content" aria-expanded="false">?</button>
+                  <div id="twin-help-content" class="twin-help-content" hidden>
+                    <strong>操作提示</strong>
+                    <ul>
+                      <li>左键拖拽 · 旋转视角</li>
+                      <li>滚轮 · 缩放距离</li>
+                      <li>右键 / Shift 拖拽 · 平移</li>
+                      <li>单击热区 · 下钻孪生场景</li>
+                      <li>单击设备 · 查看详情</li>
+                      <li>空闲 5 秒 · 自动巡航</li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+              ${screen ? '</div>' : ''}
               <div class="twin-legend" id="twin-legend"></div>
               <div class="twin-tip"></div>
               <div class="twin-info" id="twin-info"></div>
               <div class="twin-loading" id="twin-loading"><span class="spin"></span>正在构建数字孪生场景…</div>
             </div>
-            <div class="card mt">
-              <div class="card-h"><span class="card-t">场景控制台</span><span class="sub">所有参数实时作用于三维场景</span><span class="spacer"></span>${U.demoBadge()}</div>
+            ${screen ? sceneSettings() : ''}
+            <div class="card mt gis-stage-tools"${screen ? ' id="gis-screen-controls" role="region" aria-labelledby="gis-controls-title" hidden' : ''}>
+              <div class="card-h"><span class="card-t" id="gis-controls-title">场景控制台</span>${screen ? '' : '<span class="sub">所有参数实时作用于三维场景</span>'}<span class="spacer"></span>${U.demoBadge()}${screen ? '<button type="button" class="hud-btn gis-overlay-close" data-gis-close="controls" aria-label="收起场景控制台">收起</button>' : ''}</div>
               <div class="card-b">
                 <div class="console-grid">
                   <div class="ctl-group">
                     <div class="ctl-t">环境光照</div>
                     <div class="btn-group" id="ctl-time" style="margin-bottom:8px">
-                      <button class="seg on" data-t="day">白昼</button><button class="seg" data-t="night">夜间</button>
+                      ${sceneTimeButtons(screen ? sceneEnvironment.time : 'day')}
                     </div>
-                    <div class="range-row"><span>雾浓度</span><input type="range" id="ctl-fog" min="0" max="100" value="50"><span class="rv" id="ctl-fog-v">50%</span></div>
+                    <div class="range-row"><span>雾浓度</span><input type="range" id="ctl-fog" aria-label="雾浓度" min="0" max="100" value="50"><span class="rv" id="ctl-fog-v">50%</span></div>
                   </div>
                   <div class="ctl-group">
                     <div class="ctl-t">交通流</div>
-                    <div class="range-row"><span>车流密度</span><input type="range" id="ctl-traffic" min="0" max="40" value="26"><span class="rv" id="ctl-traffic-v">26</span></div>
+                    <div class="range-row"><span>车流密度</span><input type="range" id="ctl-traffic" aria-label="车流密度" min="0" max="40" value="26"><span class="rv" id="ctl-traffic-v">26</span></div>
                     <button class="btn sm mt" id="ctl-rand" style="width:100%">${U.icon('reset', 12)} 随机车流</button>
                   </div>
                   <div class="ctl-group">
                     <div class="ctl-t">显示与视角</div>
-                    <div class="flex ai-center" style="font-size:12px;color:var(--text-2);margin-bottom:6px"><span style="flex:1">对象标签</span><span class="switch on" id="ctl-labels"></span></div>
+                    <div class="ctl-sw" style="margin-bottom:6px"><span>对象标签</span>${switchControl('对象标签', 'id="ctl-labels"')}</div>
                     <label class="fld" style="margin-bottom:6px">视角 <select class="sel" id="ctl-view"><option value="orbit">环绕</option><option value="top">俯瞰</option><option value="side">路侧/侧视</option><option value="inside">洞内/贴近</option></select></label>
                     <label class="fld">画质 <select class="sel" id="ctl-quality"><option value="low">流畅</option><option value="mid" selected>均衡</option><option value="high">高清</option></select></label>
                   </div>
                   <div class="ctl-group">
                     <div class="ctl-t">设备图层</div>
-                    <div class="ctl-sw"><span>摄像机</span><span class="switch on" data-eq="cam"></span></div>
-                    <div class="ctl-sw"><span>情报板</span><span class="switch on" data-eq="vms"></span></div>
-                    <div class="ctl-sw"><span>射流风机</span><span class="switch on" data-eq="fan"></span></div>
-                    <div class="ctl-sw"><span>照明分区</span><span class="switch on" data-eq="light"></span></div>
-                    <div class="ctl-sw"><span>供配电/检测</span><span class="switch on" data-eq="power"></span></div>
+                    ${equipControls.map(([key, label]) => `<div class="ctl-sw"><span>${label}</span>${switchControl(label, `data-eq="${key}"`)}</div>`).join('')}
                   </div>
                   <div class="ctl-group" id="ctl-room" style="display:none">
                     <div class="ctl-t">机房工况试算 <span class="tag warn" style="margin-left:4px">不下发</span></div>
-                    <div class="range-row"><span>空调设定</span><input type="range" id="ctl-setpoint" min="18" max="28" step="0.5" value="24"><span class="rv" id="ctl-setpoint-v">24℃</span></div>
-                    <div class="range-row"><span>机柜负载</span><input type="range" id="ctl-load" min="20" max="95" value="60"><span class="rv" id="ctl-load-v">60%</span></div>
-                    <div class="range-row"><span>照明亮度</span><input type="range" id="ctl-roomlight" min="0" max="100" value="60"><span class="rv" id="ctl-roomlight-v">60%</span></div>
-                    <div class="ctl-sw"><span>气流可视化</span><span class="switch" id="ctl-airflow"></span></div>
-                    <div class="ctl-sw"><span>地板热力图</span><span class="switch" id="ctl-heat"></span></div>
+                    <div class="range-row"><span>空调设定</span><input type="range" id="ctl-setpoint" aria-label="空调设定" min="18" max="28" step="0.5" value="24"><span class="rv" id="ctl-setpoint-v">24℃</span></div>
+                    <div class="range-row"><span>机柜负载</span><input type="range" id="ctl-load" aria-label="机柜负载" min="20" max="95" value="60"><span class="rv" id="ctl-load-v">60%</span></div>
+                    <div class="range-row"><span>照明亮度</span><input type="range" id="ctl-roomlight" aria-label="照明亮度" min="0" max="100" value="60"><span class="rv" id="ctl-roomlight-v">60%</span></div>
+                    <div class="ctl-sw"><span>气流可视化</span>${switchControl('气流可视化', 'id="ctl-airflow"', false)}</div>
+                    <div class="ctl-sw"><span>地板热力图</span>${switchControl('地板热力图', 'id="ctl-heat"', false)}</div>
                   </div>
                   <div class="ctl-group">
                     <div class="ctl-t">巡航与输出</div>
-                    <div class="flex ai-center" style="font-size:12px;color:var(--text-2);margin-bottom:8px"><span style="flex:1">自动巡航</span><span class="switch on" id="ctl-auto"></span></div>
+                    <div class="ctl-sw" style="margin-bottom:8px"><span>自动巡航</span>${switchControl('自动巡航', 'id="ctl-auto"')}</div>
                     <button class="btn sm" id="ctl-reset" style="width:100%;margin-bottom:6px">${U.icon('reset', 12)} 重置视角</button>
                     <button class="btn sm primary" id="ctl-shot" style="width:100%">${U.icon('export', 12)} 导出场景截图</button>
                   </div>
@@ -330,7 +419,125 @@
           </div>
         </div>`;
       const box = el.querySelector('#twin-box');
+      bindTwinHelp(box);
       const info = el.querySelector('#twin-info');
+      const overlayButtons = Array.from(box.querySelectorAll('[data-gis-overlay]'));
+      const settingsPanel = el.querySelector('#gis-scene-settings');
+      const tourPlay = settingsPanel?.querySelector('#gis-tour-play');
+      const tourStop = settingsPanel?.querySelector('#gis-tour-stop');
+      const tourStatus = settingsPanel?.querySelector('#gis-tour-status');
+      const presetButtons = settingsPanel ? [...settingsPanel.querySelectorAll('[data-view-preset]')] : [];
+      const timeButtons = [...el.querySelectorAll('#ctl-time [data-t], #gis-time [data-t]')];
+      function syncOverlays() {
+        const state = U.cockpitPanelState();
+        overlayButtons.forEach(button => {
+          const open = Boolean(state[button.dataset.gisOverlay]);
+          el.querySelector('#' + button.getAttribute('aria-controls')).hidden = !open;
+          button.classList.toggle('on', open);
+          button.setAttribute('aria-expanded', String(open));
+        });
+        U.syncBoardToggle();
+      }
+      function toggleOverlay(name, open) {
+        const state = U.cockpitPanelState();
+        state[name] = open;
+        if (open) {
+          for (const other of ['lists', 'controls', 'environment']) {
+            if (other !== name && (compactQuery.matches || (other !== 'lists' && name !== 'lists'))) state[other] = false;
+          }
+        }
+        syncOverlays();
+      }
+      if (screen) {
+        U.bindBoardToggle(open => toggleOverlay('lists', open), 'gis-screen-lists');
+        overlayButtons.forEach(button => button.addEventListener('click', () => {
+          toggleOverlay(button.dataset.gisOverlay, button.getAttribute('aria-expanded') !== 'true');
+        }));
+        el.querySelectorAll('[data-gis-close]').forEach(button => button.addEventListener('click', () => {
+          const name = button.dataset.gisClose;
+          toggleOverlay(name, false);
+          overlayButtons.find(toggle => toggle.dataset.gisOverlay === name)?.focus();
+        }));
+        const sceneHud = box.querySelector('.gis-scene-hud');
+        const stage = el.querySelector('.gis-stage');
+        const updateHudHeight = () => stage.style.setProperty('--gis-hud-height', `${sceneHud.offsetHeight}px`);
+        const overlayLayout = new ResizeObserver(() => {
+          if (sceneHud.isConnected) updateHudHeight();
+          else overlayLayout.disconnect();
+        });
+        overlayLayout.observe(sceneHud);
+        updateHudHeight();
+        syncOverlays();
+      }
+      function reflectPreset(value) {
+        presetButtons.forEach(button => {
+          const active = button.dataset.viewPreset === value;
+          button.classList.toggle('on', active);
+          button.setAttribute('aria-pressed', String(active));
+        });
+      }
+      function reflectTour(state = 'idle') {
+        if (!tourPlay) return;
+        const label = state === 'playing' ? '暂停漫游' : state === 'paused' ? '继续漫游' : '播放默认漫游';
+        tourPlay.innerHTML = (state === 'playing' ? '' : U.icon('play', 13)) + ' ' + label;
+        tourPlay.classList.toggle('on', state === 'playing');
+        tourStop.disabled = state === 'idle';
+        tourStatus.textContent = state === 'playing' ? '正在沿预设路线浏览' : state === 'paused' ? '漫游已暂停' : '';
+        if (state === 'playing') reflectPreset(null);
+        if (twin) reflectAuto(twin.autoRotate);
+      }
+      function selectPreset(value) {
+        if (!twin?.setPresetView?.(value)) return false;
+        setAuto(false);
+        reflectPreset(value);
+        el.querySelector('#ctl-view').value = { overview: 'orbit', top: 'top', side: 'side', close: 'inside' }[value];
+        return true;
+      }
+      function updateSceneTime(time) {
+        if (screen) sceneEnvironment.time = time;
+        timeButtons.forEach(button => {
+          const selected = button.dataset.t === time;
+          button.classList.toggle('on', selected);
+          button.setAttribute('aria-pressed', String(selected));
+        });
+        twin?.setTime(time);
+      }
+      function setupSceneSettings() {
+        if (!settingsPanel) return;
+        const available = Boolean(twin?.renderer && !twin.fallbackEl && twin.setEnvironment && twin.startTour);
+        const scope = settingsPanel.querySelector('#gis-weather-scope');
+        scope.textContent = mode === 'tunnel' ? '雨雪显示在洞口外。' : mode === 'room' ? '机房天气效果显示在场景背景。' : '';
+        scope.hidden = !scope.textContent || !available;
+        settingsPanel.querySelector('[data-view-preset="close"]').textContent = mode === 'tunnel' ? '洞内' : '近景';
+        settingsPanel.querySelectorAll('select, #gis-time button, [data-view-preset], #gis-tour-play').forEach(control => {
+          control.disabled = !available;
+        });
+        reflectTour();
+        reflectPreset(available && !sceneFocus() ? 'overview' : null);
+        if (!available) tourStatus.textContent = '当前为二维视图，环境效果和漫游需要三维场景。';
+      }
+      if (settingsPanel) {
+        [['#gis-season', 'season'], ['#gis-weather', 'weather']].forEach(([selector, field]) => {
+          settingsPanel.querySelector(selector).addEventListener('change', event => {
+            sceneEnvironment[field] = event.target.value;
+            twin?.setEnvironment?.(sceneEnvironment.season, sceneEnvironment.weather);
+          });
+        });
+        presetButtons.forEach(button => button.addEventListener('click', () => selectPreset(button.dataset.viewPreset)));
+        tourPlay.addEventListener('click', () => {
+          if (twin?.tourState === 'playing') twin.pauseTour();
+          else twin?.startTour?.(reflectTour);
+        });
+        tourStop.addEventListener('click', () => twin?.stopTour?.());
+        box.addEventListener('pointerdown', event => {
+          if (event.target.classList.contains('twin-canvas')) reflectPreset(null);
+        });
+      }
+      timeButtons.forEach(button => button.addEventListener('click', () => updateSceneTime(button.dataset.t)));
+      function setSwitchState(control, checked) {
+        control.classList.toggle('on', checked);
+        if (screen) control.setAttribute('aria-checked', String(checked));
+      }
       const tunnelAssets = () => D.devices.filter(d => D.tunnelOf(d.km)?.id === sceneKey);
       const lightingStatus = () => D.events.find(e => e.page === 'scene-lighting').status.includes('已恢复') ? '已恢复' : '异常';
       function showInfo(sel) {
@@ -413,11 +620,34 @@
         if (sel.kind === 'room') { drill('room', sel.code); return; }
         showInfo(sel);
       }
+      function openScene(nextMode, nextScene) {
+        const sceneParams = { mode: nextMode };
+        if (nextScene) sceneParams.scene = nextScene;
+        if (screen) sceneParams.display = 'screen';
+        U.go('gis', sceneParams);
+      }
       function drill(m, key) {
-        if (mode === 'macro' || mode === 'tunnel' || m === 'tunnel') { U.go('gis', {mode:m,scene:key}); return; }
+        if (compactQuery?.matches) toggleOverlay('lists', false);
+        if (screen || mode === 'macro' || mode === 'tunnel' || m === 'tunnel') { openScene(m, key); return; }
         mode = m; sceneKey = key;
         rebuild();
         U.toast(m === 'tunnel' ? '已下钻进入隧道数字孪生场景' : m === 'room' ? '已下钻进入机房数字孪生场景' : '已下钻进入路段数字孪生场景', 'ok');
+      }
+      const listRowTag = screen ? 'button' : 'div';
+      const listRowType = screen ? ' type="button"' : '';
+      function focusRows(items) {
+        return items.map(([code, name]) => `<${listRowTag}${listRowType} class="nav-sub-item gis-list-entry" style="padding:6px 8px;color:${name.includes('⚠') ? '#ff9d9d' : '#9fb4d0'}" data-focus="${code}">${name}</${listRowTag}>`).join('');
+      }
+      function focusFromList(item) {
+        const code = item.dataset.focus;
+        twin?.focus(code);
+        if (code.startsWith('Z-')) showInfo({ kind: 'zone', code, name: code + ' 照明分区' });
+        else if (code.startsWith('JF')) showInfo({ kind: 'fan', code, name: '射流风机 ' + code });
+        else showInfo({ kind: 'device', code, name: item.textContent.replace('⚠ ', '') });
+        if (compactQuery?.matches) {
+          toggleOverlay('lists', false);
+          box.querySelector('[data-gis-overlay="lists"]').focus();
+        }
       }
       function buildLayers() {
         const lb = el.querySelector('#gis-layers');
@@ -429,11 +659,12 @@
             <div class="flex ai-center" style="padding:4px 0;font-size:12px;color:#b9cde8">
               <span class="cd" style="width:9px;height:9px;border-radius:50%;background:${col};flex:0 0 9px"></span>
               <span style="flex:1;margin-left:7px">${n}</span><span class="small" style="color:#6d84a6">${cnt}</span>
-              <span class="switch on" data-layer="${k}" style="margin-left:8px"></span>
+              ${switchControl(n, `data-layer="${k}" style="margin-left:8px"`)}
             </div>`).join('');
           lb.querySelectorAll('[data-layer]').forEach(sw => sw.addEventListener('click', () => {
-            sw.classList.toggle('on');
-            twin && twin.setLayer(sw.dataset.layer, sw.classList.contains('on'));
+            const checked = !sw.classList.contains('on');
+            setSwitchState(sw, checked);
+            twin?.setLayer(sw.dataset.layer, checked);
           }));
         } else if (mode === 'room') {
           el.querySelector('#layer-title').textContent = '机房对象定位';
@@ -453,11 +684,7 @@
             ...ac.map((a, i) => [a.code, '精密空调 ' + (i + 1)]),
             badRack && [badRack.code, '⚠ ' + (badRack.status === 'offline' ? '离线' : '异常') + '机柜 ' + badRack.code]
           ].filter(Boolean);
-          lb.innerHTML = objs.map(([c, n]) => `<div class="nav-sub-item" style="padding:6px 8px;color:${n.includes('⚠') ? '#ff9d9d' : '#9fb4d0'}" data-focus="${c}">${n}</div>`).join('');
-          lb.querySelectorAll('[data-focus]').forEach(it => it.addEventListener('click', () => {
-            twin && twin.focus(it.dataset.focus);
-            showInfo({ kind: 'device', code: it.dataset.focus, name: it.textContent.replace('⚠ ', '') });
-          }));
+          lb.innerHTML = focusRows(objs);
         } else {
           if (mode === 'tunnel' && sceneKey !== 'QL') {
             el.querySelector('#layer-title').textContent = '隧道设备档案';
@@ -469,15 +696,9 @@
           const objs = mode === 'tunnel'
             ? [['JF-01', '射流风机 JF-01'], ['JF-02', '射流风机 JF-02'], ['JF-03', '射流风机 JF-03'], ['JF-04', '射流风机 JF-04'], ['Z-03', 'Z-03 照明分区 · '+lightingStatus()], ['CAM-01', '摄像机 CAM-01 · '+D.STATUS[D.byCode['CAM-01'].status].name], ['CAB-03', '外场机柜 CAB-03'], ['PDB-02', '照明配电柜 PDB-02']]
             : [['VMS-01', '情报板 VMS-01'], ['VMS-02', '情报板 VMS-02'], ['CAM-101', '门架摄像机 CAM-101'], ['CAM-201', '路侧摄像机 CAM-201'], ['MET-01', '气象检测器 MET-01']];
-          lb.innerHTML = objs.map(([c, n]) => `<div class="nav-sub-item" style="padding:6px 8px;color:${n.includes('⚠') ? '#ff9d9d' : '#9fb4d0'}" data-focus="${c}">${n}</div>`).join('');
-          lb.querySelectorAll('[data-focus]').forEach(it => it.addEventListener('click', () => {
-            twin && twin.focus(it.dataset.focus);
-            const code = it.dataset.focus;
-            if (code.startsWith('Z-')) showInfo({ kind: 'zone', code, name: code + ' 照明分区' });
-            else if (code.startsWith('JF')) showInfo({ kind: 'fan', code, name: '射流风机 ' + code });
-            else showInfo({ kind: 'device', code, name: it.textContent.replace('⚠ ', '') });
-          }));
+          lb.innerHTML = focusRows(objs);
         }
+        lb.querySelectorAll('[data-focus]').forEach(item => item.addEventListener('click', () => focusFromList(item)));
       }
       function buildDrill() {
         const db = el.querySelector('#gis-drill');
@@ -485,11 +706,11 @@
           .concat(ROAD.map(r => ({ m: 'road', key: r.id, name: r.name, sub: D.kmText(r.km), col: '#ffd24a' })))
           .concat(D.ROOMS.map(rm => ({ m: 'room', key: rm.id, name: rm.name, sub: D.kmText(rm.km), col: '#19e3ff' })));
         db.innerHTML = items.map(it => `
-          <div class="nav-sub-item" style="padding:7px 8px;display:flex;align-items:center;gap:8px;${mode === it.m && sceneKey === it.key ? 'background:rgba(47,123,255,.18);border-radius:6px' : ''}" data-drill="${it.m}|${it.key}">
+          <${listRowTag}${listRowType} class="nav-sub-item gis-list-entry" style="padding:7px 8px;display:flex;align-items:center;gap:8px;${mode === it.m && sceneKey === it.key ? 'background:rgba(47,123,255,.18);border-radius:6px' : ''}"${screen && mode === it.m && sceneKey === it.key ? ' aria-current="true"' : ''} data-drill="${it.m}|${it.key}">
             <span class="cd" style="width:8px;height:8px;border-radius:50%;background:${it.col};flex:0 0 8px"></span>
             <span style="flex:1;color:#cfe0f5;font-size:12px">${it.name}<br><span class="small" style="color:#6d84a6">${it.sub} · ${it.m === 'tunnel' ? '隧道孪生' : it.m === 'room' ? '机房孪生' : '路段孪生'}</span></span>
             <span style="color:#4fd8f0">›</span>
-          </div>`).join('');
+          </${listRowTag}>`).join('');
         db.querySelectorAll('[data-drill]').forEach(it => it.addEventListener('click', () => {
           const [m, k] = it.dataset.drill.split('|');
           drill(m, k);
@@ -505,9 +726,9 @@
       function fmtYM(d) { return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'); }
       function fmtMD(d) { return (d.getMonth() + 1) + '月' + d.getDate() + '日'; }
       function renderTelemetry(s, hist) {
-        const k = el.querySelector('#rm-kpis'); if (!k) return;
         const hl = el.querySelector('#hud-live');
         if (hl) { hl.style.display = ''; hl.textContent = '冷通道 ' + s.coldAisle.toFixed(1) + '℃ · UPS ' + s.upsLoad.toFixed(0) + '% · PUE ' + s.pue.toFixed(2); }
+        const k = el.querySelector('#rm-kpis'); if (!k) return;
         const items = [
           ['冷通道温度', s.coldAisle.toFixed(1), '℃', s.coldAisle >= 26 ? 'warn' : 'ok'],
           ['热通道温度', s.hotAisle.toFixed(1), '℃', s.hotAisle >= 38 ? 'warn' : 'ok'],
@@ -620,12 +841,12 @@
         const active = eqMap[mode];
         el.querySelectorAll('[data-eq]').forEach(sw => {
           const on = active.includes(sw.dataset.eq);
+          if (screen) sw.disabled = !on;
           sw.style.opacity = on ? '1' : '.35';
           sw.style.pointerEvents = on ? '' : 'none';
         });
         el.querySelector('#ctl-room').style.display = mode === 'room' ? '' : 'none';
-        el.querySelector('#hud-live').style.display = mode === 'room' ? '' : 'none';
-        el.querySelector('#ctl-view option[value="inside"]').disabled = mode === 'macro';
+        el.querySelector('#ctl-view option[value="inside"]').disabled = mode === 'macro' && !screen;
         el.querySelector('#gis-status-card').style.display = mode === 'macro' ? '' : 'none';
         const inside = el.querySelector('#hud-inside');
         inside.style.display = mode === 'macro' ? 'none' : '';
@@ -635,6 +856,7 @@
         const seq = ++buildSeq;
         if (twin) { twin.destroy(); twin = null; }
         info.classList.remove('show');
+        el.querySelector('#hud-live').style.display = 'none';
         el.querySelector('#twin-legend').innerHTML = mode === 'macro'
           ? Object.keys(D.CATS).map(c => `<div class="li"><span class="cd" style="background:${D.CATS[c].color}"></span>${D.CATS[c].name}</div>`).join('')
           : mode === 'room'
@@ -669,7 +891,8 @@
           twin.setQuality(el.querySelector('#ctl-quality').value);
           twin.autoRotate = el.querySelector('#ctl-auto').classList.contains('on');
           el.querySelectorAll('[data-eq]').forEach(sw => twin.setEquip(sw.dataset.eq, sw.classList.contains('on')));
-          if (mode === 'room') {
+          if (screen) twin.setEnvironment?.(sceneEnvironment.season, sceneEnvironment.weather);
+          if (mode === 'room' && twin.roomSim) {
             twin.setRoomParam('setpoint', +el.querySelector('#ctl-setpoint').value);
             twin.setRoomParam('load', +el.querySelector('#ctl-load').value);
             twin.setRoomParam('light', +el.querySelector('#ctl-roomlight').value);
@@ -677,6 +900,7 @@
             twin.setRoomParam('heat', el.querySelector('#ctl-heat').classList.contains('on'));
             renderTelemetry(twin.roomSim, twin.simHist);
           }
+          setupSceneSettings();
           loading.style.display = 'none';
           buildLayers();
           if (sceneFocus()) {
@@ -693,7 +917,11 @@
           b.classList.toggle('on', selected);
           b.setAttribute('aria-pressed', String(selected));
         });
-        syncSceneSel(); syncConsole(); buildDrill(); buildBottom(); buildTwin();
+        syncSceneSel();
+        syncConsole();
+        buildDrill();
+        if (!screen) buildBottom();
+        buildTwin();
       }
       rebuild();
       /* ---- 头部导航 ---- */
@@ -714,20 +942,26 @@
       }
       el.querySelectorAll('#gis-mode [data-m]').forEach(b => b.addEventListener('click', () => {
         if (b.dataset.m === mode) return;
-        if (['macro','tunnel'].includes(mode) || ['macro','tunnel'].includes(b.dataset.m)) { U.go('gis', {mode:b.dataset.m}); return; }
+        if (screen || ['macro','tunnel'].includes(mode) || ['macro','tunnel'].includes(b.dataset.m)) { openScene(b.dataset.m); return; }
         mode = b.dataset.m;
         sceneKey = mode === 'tunnel' ? 'QL' : mode === 'road' ? 'RS-QL' : mode === 'room' ? 'MR-01' : sceneKey;
         rebuild();
       }));
       el.querySelector('#gis-scene')?.addEventListener('change', ev => {
-        if (mode === 'tunnel') { U.go('gis', {mode, scene:ev.target.value}); return; }
+        if (screen || mode === 'tunnel') { openScene(mode, ev.target.value); return; }
         sceneKey = ev.target.value; rebuild();
       });
-      el.querySelector('#hud-top').addEventListener('click', () => twin && twin.topView());
-      el.querySelector('#hud-inside').addEventListener('click', () => twin && twin.insideView());
+      el.querySelector('#hud-top').addEventListener('click', () => { if (!screen || !selectPreset('top')) twin?.topView(); });
+      el.querySelector('#hud-inside').addEventListener('click', () => { if (!screen || !selectPreset('close')) twin?.insideView(); });
+      function reflectAuto(on) {
+        const auto = el.querySelector('#hud-auto');
+        auto.classList.toggle('on', on);
+        auto.setAttribute('aria-pressed', String(on));
+        setSwitchState(el.querySelector('#ctl-auto'), on);
+      }
       function setAuto(on) {
-        el.querySelector('#hud-auto').classList.toggle('on', on);
-        el.querySelector('#ctl-auto').classList.toggle('on', on);
+        if (on) twin?.stopTour?.();
+        reflectAuto(on);
         if (twin) twin.autoRotate = on;
       }
       el.querySelector('#hud-auto').addEventListener('click', ev => setAuto(!ev.currentTarget.classList.contains('on')));
@@ -738,11 +972,6 @@
         twin && twin.setStatusFilter(p.dataset.s);
       }));
       /* ---- 控制台 ---- */
-      el.querySelectorAll('#ctl-time .seg').forEach(b => b.addEventListener('click', () => {
-        el.querySelectorAll('#ctl-time .seg').forEach(x => x.classList.remove('on'));
-        b.classList.add('on');
-        twin && twin.setTime(b.dataset.t);
-      }));
       el.querySelector('#ctl-fog').addEventListener('input', ev => {
         el.querySelector('#ctl-fog-v').textContent = ev.target.value + '%';
         twin && twin.setFog(+ev.target.value / 100);
@@ -753,14 +982,20 @@
       });
       el.querySelector('#ctl-rand').addEventListener('click', () => { twin && twin.randomize(); U.toast('已随机重布车流', 'ok'); });
       el.querySelector('#ctl-labels').addEventListener('click', ev => {
-        ev.currentTarget.classList.toggle('on');
-        twin && twin.setLabels(ev.currentTarget.classList.contains('on'));
+        const control = ev.currentTarget;
+        const checked = !control.classList.contains('on');
+        setSwitchState(control, checked);
+        twin?.setLabels(checked);
       });
-      el.querySelector('#ctl-view').addEventListener('change', ev => twin && twin.setView(ev.target.value));
+      el.querySelector('#ctl-view').addEventListener('change', ev => {
+        const view = ev.target.value;
+        if (!screen || !selectPreset({ orbit: 'overview', top: 'top', side: 'side', inside: 'close' }[view])) twin?.setView(view);
+      });
       el.querySelector('#ctl-quality').addEventListener('change', ev => twin && twin.setQuality(ev.target.value));
       el.querySelectorAll('[data-eq]').forEach(sw => sw.addEventListener('click', () => {
-        sw.classList.toggle('on');
-        twin && twin.setEquip(sw.dataset.eq, sw.classList.contains('on'));
+        const checked = !sw.classList.contains('on');
+        setSwitchState(sw, checked);
+        twin?.setEquip(sw.dataset.eq, checked);
       }));
       el.querySelector('#ctl-setpoint').addEventListener('input', ev => {
         el.querySelector('#ctl-setpoint-v').textContent = (+ev.target.value).toFixed(1) + '℃';
@@ -776,15 +1011,18 @@
         el.querySelector('#ctl-roomlight-v').textContent = ev.target.value + '%';
         twin && twin.setRoomParam('light', +ev.target.value);
       });
-      el.querySelector('#ctl-airflow').addEventListener('click', ev => {
-        ev.currentTarget.classList.toggle('on');
-        twin && twin.setRoomParam('airflow', ev.currentTarget.classList.contains('on'));
+      ['airflow', 'heat'].forEach(key => {
+        const control = el.querySelector('#ctl-' + key);
+        control.addEventListener('click', () => {
+          const checked = !control.classList.contains('on');
+          setSwitchState(control, checked);
+          twin?.setRoomParam(key, checked);
+        });
       });
-      el.querySelector('#ctl-heat').addEventListener('click', ev => {
-        ev.currentTarget.classList.toggle('on');
-        twin && twin.setRoomParam('heat', ev.currentTarget.classList.contains('on'));
+      el.querySelector('#ctl-reset').addEventListener('click', () => {
+        if (!screen || !selectPreset('overview')) twin?.resetView();
+        el.querySelector('#ctl-view').value = 'orbit';
       });
-      el.querySelector('#ctl-reset').addEventListener('click', () => { twin && twin.resetView(); el.querySelector('#ctl-view').value = 'orbit'; });
       el.querySelector('#ctl-shot').addEventListener('click', () => {
         if (!twin || !twin.renderer) { U.toast('场景尚未就绪', 'warn'); return; }
         const url = twin.screenshot();

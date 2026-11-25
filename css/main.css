@@ -59,11 +59,14 @@ button { font-family: var(--font); }
   background: linear-gradient(178deg, var(--navy-900) 0%, var(--navy-800) 62%, #0d2a50 100%);
   color: #c8d6e8; display: flex; flex-direction: column; z-index: 40;
 }
-.brand { padding: 14px 16px 12px; border-bottom: 1px solid rgba(255,255,255,.07); }
-.brand-logo { display: flex; align-items: center; gap: 9px; }
-.brand-mark {display:block;flex:none;}
-.brand-name { font-size: 14px; font-weight: 700; color: #fff; letter-spacing: .5px; line-height: 1.25; }
-.brand-sub { font-size: 10px; color: #7e93b3; margin-top: 2px; letter-spacing: .4px; }
+.sidebar-nav-title {
+  padding: 8px 19px;
+  border-bottom: 1px solid rgba(255,255,255,.09);
+  color: #a8bfdd;
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.5;
+}
 .demo-chip {
   margin: 10px 16px 6px; padding: 5px 10px; font-size: 11px; border-radius: 5px;
   background: rgba(245, 158, 11, .14); color: #fbbf24; border: 1px solid rgba(245,158,11,.35);
@@ -470,7 +473,8 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 12px; }
 .twin-wrap { position: relative; border-radius: var(--radius); overflow: hidden; background: #060f22; border: 1px solid var(--line-dark); }
 .twin-canvas { display: block; width: 100%; height: 100%; }
 .twin-hud { position: absolute; top: 10px; left: 12px; display: flex; gap: 8px; align-items: center; z-index: 5; flex-wrap: wrap; }
-.twin-hud-r { position: absolute; top: 10px; right: 12px; display: flex; gap: 6px; z-index: 5; }
+.twin-hud-r { position: absolute; top: 10px; right: 12px; display: flex; align-items: center; gap: 6px; z-index: 5; }
+.twin-hud-r:has(.twin-help-content:not([hidden])) { z-index: 9; }
 .hud-btn {
   background: rgba(11,34,66,.85); border: 1px solid var(--line-dark); color: #b9cde8;
   font-size: 11px; padding: 5px 11px; border-radius: 6px; cursor: pointer; backdrop-filter: blur(4px);
@@ -484,6 +488,24 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 12px; }
   font-size: 11px; padding: 5px 11px; border-radius: 6px; backdrop-filter: blur(4px);
   font-variant-numeric: tabular-nums;
 }
+.twin-help { position: relative; }
+.twin-help .twin-help-toggle {
+  width: 30px; height: 30px; padding: 0; justify-content: center; border-radius: 50%;
+  color: #d9efff; font-size: 15px; font-weight: 700; line-height: 1;
+}
+.twin-help .twin-help-toggle[aria-expanded="true"] {
+  background: #154365; border-color: #4699bb; color: #fff;
+}
+.twin-help-toggle:focus-visible { outline: 2px solid #8ee8ff; outline-offset: -2px; }
+.twin-help-content {
+  position: absolute; top: 100%; right: 0; width: min(14.5rem, calc(100vw - 24px));
+  max-height: min(15rem, 45dvh); overflow: auto; overscroll-behavior: contain;
+  padding: 12px 14px; border: 1px solid rgba(124,177,221,.35); border-radius: 9px;
+  background: rgba(7,23,43,.94); box-shadow: 0 8px 24px rgba(1,10,24,.3);
+  color: #c3d7ed; font-size: 12px; line-height: 1.75; backdrop-filter: blur(8px);
+}
+.twin-help-content strong { display: block; margin-bottom: 4px; color: #eef7ff; font-size: 13px; }
+.twin-help-content ul { display: grid; gap: 2px; list-style: none; }
 .twin-legend {
   position: absolute; left: 12px; bottom: 12px; z-index: 5; background: rgba(8,26,51,.82);
   border: 1px solid var(--line-dark); border-radius: 7px; padding: 8px 11px; font-size: 11px;

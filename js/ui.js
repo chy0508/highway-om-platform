@@ -80,6 +80,75 @@
     '系统配置人员': ['sources', 'config', 'devices', 'topology']
   };
 
+  const primaryNav = ['dashboard', 'gis', 'devices', 'diagnosis', 'tasks', 'fan'].map(key => NAV.find(item => item.key === key));
+  const compactCockpit = matchMedia('(max-width: 48rem)');
+  const cockpitPanels = {
+    wide: { lists: true, controls: false, environment: false },
+    compact: { lists: null, controls: false, environment: false }
+  };
+  const cockpitPanelState = () => cockpitPanels[compactCockpit.matches ? 'compact' : 'wide'];
+  let boardAction = null;
+
+  function globalHeader() {
+    return `<header class="drive-head">
+      <div class="drive-brand">
+        <button class="drive-menu" type="button" aria-label="业务导航" aria-controls="sidebar" aria-expanded="false">☰</button>
+        <img src="assets/platform-logo.svg" width="24" height="24" alt="" class="drive-brand-mark"><h1>机电智能运维平台 <span>· 综合驾驶舱</span></h1>
+      </div>
+      <nav class="drive-top-nav" aria-label="驾驶舱业务导航">${primaryNav.map(item => {
+        const target = item.key === 'gis' ? '#/gis?display=screen' : `#/${item.key}`;
+        return `<a href="${target}" data-module="${item.key}">${icon(item.icon, 14)}${item.name}</a>`;
+      }).join('')}</nav>
+      <div class="drive-actions"><button class="drive-toggle" type="button"></button></div>
+    </header>
+    <button type="button" class="drive-nav-mask" aria-label="关闭业务导航"></button>`;
+  }
+
+  function isDashboardLayout() {
+    return document.body.classList.contains('drive-mode') || document.body.classList.contains('gis-screen-mode');
+  }
+
+  function syncGlobalMenu() {
+    const classes = document.body.classList;
+    const open = isDashboardLayout() ? classes.contains('drive-nav-open') : !classes.contains('workbench-sidebar-hidden');
+    document.querySelector('.drive-menu').setAttribute('aria-expanded', String(open));
+  }
+
+  function setGlobalMenu(open) {
+    const classes = document.body.classList;
+    if (isDashboardLayout()) classes.toggle('drive-nav-open', open);
+    else classes.toggle('workbench-sidebar-hidden', !open);
+    syncGlobalMenu();
+    if (!open) document.querySelector('.drive-menu').focus();
+  }
+
+  function syncGlobalNav() {
+    const allowed = ROLE_MENUS[role];
+    const active = primaryNav.find(item => item.key === current.page || item.children?.some(child => child.key === current.page));
+    document.querySelectorAll('.drive-top-nav [data-module]').forEach((link, index) => {
+      const item = primaryNav[index];
+      link.hidden = Boolean(allowed && item.key !== 'dashboard' && !allowed.includes(item.key) && !item.children?.some(child => allowed.includes(child.key)));
+      if (item === active && !link.hidden) link.setAttribute('aria-current', 'page');
+      else link.removeAttribute('aria-current');
+    });
+  }
+
+  function syncBoardToggle() {
+    const toggle = document.querySelector('.drive-toggle');
+    const state = cockpitPanelState();
+    state.lists ??= !document.body.classList.contains('gis-screen-mode');
+    toggle.textContent = state.lists ? '收起看板' : '显示看板';
+    toggle.title = boardAction ? '' : `${toggle.textContent}并返回综合驾驶舱`;
+    if (boardAction) toggle.setAttribute('aria-expanded', String(state.lists));
+    else toggle.removeAttribute('aria-expanded');
+  }
+
+  function bindBoardToggle(action, panelId) {
+    boardAction = action;
+    if (panelId) document.querySelector('.drive-toggle').setAttribute('aria-controls', panelId);
+    syncBoardToggle();
+  }
+
   /* ---------- 路由 ---------- */
   const Pages = {};
   let current = { page: 'dashboard', params: {} };
@@ -98,9 +167,12 @@
     current = parseHash();
     D.syncTaskReviews();
     document.body.classList.toggle('drive-mode', current.page === 'dashboard');
-    document.body.classList.remove('drive-nav-open');
+    document.body.classList.remove('drive-nav-open', 'gis-screen-mode');
+    boardAction = null;
+    document.querySelector('.drive-toggle').removeAttribute('aria-controls');
     const p = Pages[current.page];
     renderNav();
+    syncGlobalNav();
     const content = document.getElementById('content');
     content.scrollTop = 0;
     Charts.hideTip();
@@ -115,6 +187,8 @@
       if (viewed) { markRead('event', viewed.id); refreshNoticeCounts(); }
     }
     catch (err) { console.error(err); body.innerHTML = `<div class="card"><div class="card-b"><div class="empty">页面渲染异常：${err.message}</div></div></div>`; }
+    syncGlobalMenu();
+    syncBoardToggle();
     document.title = p.title + ' · 高速公路机电智能运维平台';
     syncRobot();
   }
@@ -565,8 +639,8 @@
     document.getElementById('role-sel').addEventListener('change', ev => {
       role = ev.target.value;
       toast('已切换角色：' + role + '（菜单与首页关注内容已调整）', 'ok');
-      go('dashboard');
-      renderNav();
+      if (current.page === 'dashboard') render();
+      else go('dashboard');
     });
     document.getElementById('reset-btn').addEventListener('click', () => {
       D.clearTaskReviews();
@@ -674,12 +748,10 @@
   /* ---------- 启动 ---------- */
   function boot() {
     document.getElementById('app').innerHTML = `
+      ${globalHeader()}
       <aside id="sidebar">
-        <div class="brand"><div class="brand-logo">
-          <img src="assets/platform-logo.svg" width="32" height="32" alt="" class="brand-mark">
-          <div><div class="brand-name">机电智能运维平台</div><div class="brand-sub">高速公路 · 数字孪生</div></div>
-        </div></div>
-        <nav id="nav" class="dark-scroll"></nav>
+        <div class="sidebar-nav-title" id="sidebar-nav-title">业务菜单</div>
+        <nav id="nav" class="dark-scroll" aria-labelledby="sidebar-nav-title"></nav>
       </aside>
       <div id="main">
         <header id="topbar">
@@ -722,6 +794,24 @@
         <div class="rp-note">${window.PersonalQwen ? '个人千问会话 · 提问和相关业务数据将发送至阿里云' : '仅基于内置数据集 · 关联≠因果 · 不提供控制/审批/外部操作'}</div>
       </div>`;
     document.getElementById('modal-mask').addEventListener('click', ev => { if (ev.target.id === 'modal-mask') closeModal(); });
+    const menu = document.querySelector('.drive-menu');
+    menu.addEventListener('click', () => setGlobalMenu(menu.getAttribute('aria-expanded') !== 'true'));
+    document.querySelector('.drive-nav-mask').addEventListener('click', () => setGlobalMenu(false));
+    document.querySelector('.drive-toggle').addEventListener('click', () => {
+      const state = cockpitPanelState();
+      const open = !state.lists;
+      if (boardAction) boardAction(open);
+      else {
+        state.lists = open;
+        go('dashboard');
+      }
+    });
+    compactCockpit.addEventListener('change', () => {
+      if (boardAction) {
+        const state = cockpitPanelState();
+        boardAction(state.lists ?? current.page === 'dashboard');
+      } else syncBoardToggle();
+    });
     document.addEventListener('keydown', ev => {
       if (ev.key === 'Escape' && document.body.classList.contains('drive-nav-open')) {
         document.querySelector('.drive-nav-mask')?.click();
@@ -737,6 +827,7 @@
   window.UI = {
     icon, go, render, openDrawer, closeDrawer, modal, closeModal, toast, copy,
     statusTag, levelTag, catTag, demoBadge, pageHead, kpi, esc, table, openDevice, openAlarm, openRecentAlarms, openCurrentAlarms, openEvent, isNoticeRead,
-    paramTemplate, boot, get role() { return role; }, NAV
+    paramTemplate, boot, get role() { return role; }, NAV,
+    compactCockpit, cockpitPanelState, bindBoardToggle, syncBoardToggle
   };
 })();

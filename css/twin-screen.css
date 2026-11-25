@@ -1,0 +1,565 @@
+.gis-screen-mode #app {
+  background: #060f22;
+}
+
+.gis-screen-mode:not(.drive-nav-open) #sidebar,
+.gis-screen-mode #topbar,
+.gis-screen-mode #robot-btn,
+.gis-screen-mode #robot-panel,
+.gis-screen-mode .crumb,
+.gis-screen-mode .gis-instructions,
+.gis-screen-mode .gis-stage-sidebar[hidden],
+.gis-screen-mode .gis-stage-tools[hidden],
+.gis-screen-mode .gis-scene-settings[hidden],
+.gis-screen-mode #gis-bottom {
+  display: none;
+}
+
+.gis-screen-mode #main,
+.gis-screen-mode #content,
+.gis-screen-mode #page-body,
+.gis-screen-mode .gis-stage,
+.gis-screen-mode .gis-stage-surface {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.gis-screen-mode #content {
+  padding: 0;
+  overflow: hidden;
+  scrollbar-gutter: auto;
+}
+
+.gis-screen-mode #page-body {
+  animation: none;
+}
+
+.gis-screen-mode #twin-box {
+  flex: 1;
+  min-height: 0;
+  border: 0;
+  border-radius: 0;
+}
+
+.gis-screen-mode .gis-stage {
+  --scene-inset: clamp(10px, 1.1vw, 20px);
+  --scene-control-height: 32px;
+  --scene-rail-top: calc(var(--scene-inset) + var(--gis-hud-height, 32px) + 8px);
+  --scene-list-width: clamp(13.5rem, 16vw, 16rem);
+  --scene-panel: rgba(7, 23, 43, 0.89);
+  --scene-panel-line: rgba(124, 177, 221, 0.3);
+  --scene-panel-text: #d9e9fa;
+  --scene-panel-muted: #aabed4;
+  position: relative;
+  isolation: isolate;
+}
+
+.gis-screen-mode .gis-scene-hud {
+  position: absolute;
+  z-index: 9;
+  inset: var(--scene-inset) var(--scene-inset) auto;
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr) auto;
+  grid-template-areas: "tools scenes help";
+  align-items: center;
+  gap: 8px 12px;
+  pointer-events: none;
+}
+
+.gis-screen-mode .gis-scene-hud .twin-hud {
+  position: static;
+  grid-area: tools;
+  min-width: 0;
+}
+
+.gis-screen-mode .gis-scene-hud .twin-hud-r {
+  display: contents;
+}
+
+.gis-screen-mode .gis-scene-hud .twin-help {
+  display: flex;
+  grid-area: help;
+  pointer-events: auto;
+}
+
+.gis-screen-mode .gis-scene-hud .twin-help-toggle {
+  width: var(--scene-control-height);
+  height: var(--scene-control-height);
+}
+
+.gis-screen-mode .gis-scene-hud .hud-live {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  justify-self: end;
+  max-width: 100%;
+}
+
+.gis-screen-mode .gis-scene-hud .twin-hud .hud-btn {
+  min-height: var(--scene-control-height);
+  font-size: 0.75rem;
+  white-space: nowrap;
+  pointer-events: auto;
+}
+
+.gis-screen-mode .gis-overlay-toggle[aria-expanded="true"] {
+  background: #154365;
+  border-color: #4699bb;
+  color: #c8f3ff;
+}
+
+.gis-screen-mode :is(.gis-stage-sidebar, .gis-stage-tools, .gis-scene-settings) {
+  position: absolute;
+  z-index: 8;
+  color: var(--scene-panel-text);
+  color-scheme: dark;
+  overscroll-behavior: contain;
+  scrollbar-color: #477196 transparent;
+  scrollbar-width: thin;
+}
+
+.gis-screen-mode .gis-stage-sidebar {
+  inset: var(--scene-rail-top) auto auto var(--scene-inset);
+  width: var(--scene-list-width);
+  max-height: max(0px, calc(100% - var(--scene-rail-top) - 3.5rem - var(--scene-inset)));
+  gap: 8px;
+  overflow: auto;
+}
+
+.gis-screen-mode .gis-stage-sidebar > .card,
+.gis-screen-mode :is(.gis-stage-tools, .gis-scene-settings) {
+  margin: 0;
+  background: var(--scene-panel);
+  border: 1px solid var(--scene-panel-line);
+  border-radius: 9px;
+  box-shadow: 0 10px 24px rgba(1, 10, 24, 0.22);
+  backdrop-filter: blur(9px);
+}
+
+.gis-screen-mode .gis-stage-sidebar > .card {
+  flex: none;
+}
+
+.gis-screen-mode :is(.gis-stage-sidebar, .gis-stage-tools) .card-h {
+  min-height: 38px;
+  padding: 8px 11px;
+  border-color: var(--scene-panel-line);
+}
+
+.gis-screen-mode :is(.gis-stage-sidebar, .gis-stage-tools) :is(.card-t, .ctl-t) {
+  color: #eef7ff;
+  font-size: 0.8125rem;
+}
+
+.gis-screen-mode .gis-stage-sidebar .card-b {
+  padding: 6px 8px;
+}
+
+.gis-screen-mode .gis-stage-sidebar .muted {
+  color: var(--scene-panel-muted);
+}
+
+.gis-screen-mode .gis-list-entry {
+  display: block;
+  width: 100%;
+  min-height: 28px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  text-align: left;
+}
+
+.gis-screen-mode .gis-list-entry:hover {
+  background: rgba(86, 158, 217, 0.18);
+}
+
+.gis-screen-mode #gis-layers button[data-asset] {
+  width: 100%;
+  margin-block: 2px;
+}
+
+.gis-screen-mode .gis-stage-sidebar .pill {
+  padding: 3px 7px;
+  background: #0a243f;
+  border-color: var(--scene-panel-line);
+  color: var(--scene-panel-text);
+}
+
+.gis-screen-mode .gis-stage-sidebar .pill.on {
+  background: #145276;
+  border-color: #419bbd;
+  color: #fff;
+}
+
+.gis-screen-mode .gis-stage-tools {
+  --text-2: var(--scene-panel-muted);
+  inset: auto var(--scene-inset) var(--scene-inset) calc(var(--scene-inset) + var(--scene-list-width) + 10px);
+  max-height: min(56%, 22rem, max(0px, calc(100% - var(--scene-rail-top) - var(--scene-inset))));
+  overflow: auto;
+}
+
+.gis-screen-mode .gis-stage-tools > .card-h {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: #0d243d;
+}
+
+.gis-screen-mode .gis-overlay-close {
+  padding: 3px 9px;
+}
+
+.gis-screen-mode .gis-scene-settings {
+  inset: var(--scene-rail-top) var(--scene-inset) auto auto;
+  width: min(19rem, calc(100% - 2 * var(--scene-inset)));
+  max-height: max(0px, calc(100% - var(--scene-rail-top) - var(--scene-inset)));
+  overflow: auto;
+}
+
+.gis-screen-mode .gis-settings-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  min-height: 40px;
+  padding: 7px 12px;
+  border-bottom: 1px solid var(--scene-panel-line);
+  background: #0d243d;
+}
+
+.gis-screen-mode .gis-settings-head h2 {
+  margin: 0;
+  color: #eef7ff;
+  font-size: 0.875rem;
+  font-weight: 650;
+}
+
+.gis-screen-mode .gis-settings-body {
+  display: grid;
+  gap: 8px;
+  padding: 10px 12px 12px;
+  font-size: 0.8125rem;
+}
+
+.gis-screen-mode .gis-settings-body :is(h3, legend) {
+  margin: 2px 0 0;
+  padding: 0;
+  color: #eef7ff;
+  font-size: inherit;
+  font-weight: 650;
+}
+
+.gis-screen-mode .gis-settings-row {
+  display: grid;
+  grid-template-columns: minmax(4rem, 1fr) minmax(0, 1.8fr);
+  align-items: center;
+  gap: 8px;
+}
+
+.gis-screen-mode .gis-settings-row select {
+  width: 100%;
+  min-width: 0;
+  min-height: var(--scene-control-height);
+  padding: 3px 8px;
+  border: 1px solid var(--scene-panel-line);
+  border-radius: 6px;
+  background: #102c47;
+  color: var(--scene-panel-text);
+  font: inherit;
+}
+
+.gis-screen-mode #gis-time {
+  display: flex;
+  min-height: var(--scene-control-height);
+  border-color: var(--scene-panel-line);
+  background: #102c47;
+}
+
+.gis-screen-mode #gis-time .seg {
+  flex: 1;
+  background: transparent;
+  border-color: var(--scene-panel-line);
+  color: var(--scene-panel-text);
+}
+
+.gis-screen-mode #gis-time .seg.on {
+  background: #154365;
+  color: #c8f3ff;
+}
+
+.gis-screen-mode .gis-settings-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.gis-screen-mode .gis-view-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.gis-screen-mode :is(.gis-settings-actions, .gis-view-options) .hud-btn {
+  min-height: var(--scene-control-height);
+  justify-content: center;
+  text-align: center;
+}
+
+.gis-screen-mode .gis-settings-actions .hud-btn {
+  flex: 1 1 auto;
+}
+
+.gis-screen-mode .gis-scene-settings .hud-btn[aria-pressed="true"] {
+  background: #154365;
+  border-color: #4699bb;
+  color: #c8f3ff;
+}
+
+.gis-screen-mode .gis-scene-settings .hud-btn:disabled {
+  opacity: 0.48;
+  cursor: not-allowed;
+}
+
+.gis-screen-mode .gis-tour-status {
+  margin: 0;
+  color: var(--scene-panel-muted);
+  font-size: 0.75rem;
+  line-height: 1.45;
+}
+
+.gis-screen-mode .gis-settings-note {
+  margin-top: 6px;
+  color: var(--scene-panel-muted);
+  font-size: 0.75rem;
+}
+
+.gis-screen-mode .gis-stage-tools > .card-b {
+  padding: 9px;
+}
+
+.gis-screen-mode .gis-stage-tools .console-grid {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 10rem), 1fr));
+  gap: 8px;
+}
+
+.gis-screen-mode .gis-stage-tools .ctl-group {
+  padding: 9px;
+  background: rgba(25, 59, 89, 0.52);
+  border-color: var(--scene-panel-line);
+  border-radius: 7px;
+}
+
+.gis-screen-mode .gis-stage-tools .ctl-t {
+  margin-bottom: 7px;
+  letter-spacing: normal;
+}
+
+.gis-screen-mode .gis-stage-tools .range-row {
+  gap: 6px;
+}
+
+.gis-screen-mode .gis-stage-tools .rv {
+  min-width: 32px;
+  color: #bde9ff;
+}
+
+.gis-screen-mode .gis-stage-tools input[type="range"] {
+  accent-color: #49b7e5;
+}
+
+.gis-screen-mode .gis-stage-tools :is(.btn, .seg, .sel) {
+  min-height: 28px;
+  background: #102c47;
+  border-color: var(--scene-panel-line);
+  color: var(--scene-panel-text);
+}
+
+.gis-screen-mode .gis-stage-tools .btn-group {
+  border-color: var(--scene-panel-line);
+}
+
+.gis-screen-mode .gis-stage-tools :is(.btn, .seg, .sel):not(:disabled):hover {
+  background: #193c5e;
+  border-color: #5497bf;
+  color: #fff;
+}
+
+.gis-screen-mode .gis-stage-tools :is(.btn.primary, .seg.on) {
+  background: #1d5a86;
+  border-color: #4199c4;
+  color: #fff;
+}
+
+.gis-screen-mode .gis-stage-tools .tag.warn {
+  background: #403124;
+  color: #ffd49c;
+}
+
+.gis-screen-mode .gis-stage .switch {
+  border: 0;
+  padding: 0;
+  background: #344c65;
+}
+
+.gis-screen-mode .gis-stage .switch.on {
+  background: #2383b5;
+}
+
+.gis-screen-mode .gis-stage .switch:disabled {
+  cursor: not-allowed;
+}
+
+.gis-screen-mode .twin-legend {
+  left: var(--scene-inset);
+  bottom: var(--scene-inset);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px 10px;
+  max-width: var(--scene-list-width);
+  line-height: 1.45;
+  pointer-events: none;
+}
+
+.gis-screen-mode .twin-legend .li {
+  white-space: nowrap;
+}
+
+.gis-screen-mode .gis-stage:has(.gis-stage-tools:not([hidden])) .twin-info {
+  top: var(--scene-rail-top);
+  bottom: auto;
+  max-height: min(15rem, 30%);
+}
+
+.gis-screen-mode .gis-scene-overlay {
+  grid-area: scenes;
+  justify-self: end;
+  width: min(100%, 38rem);
+  gap: 8px;
+  grid-template-columns: minmax(0, 1fr) minmax(6rem, 24%);
+}
+
+.gis-screen-mode .gis-scene-overlay > * {
+  height: var(--scene-control-height);
+  grid-column: auto;
+  pointer-events: auto;
+}
+
+.gis-screen-mode .gis-scene-overlay #gis-mode {
+  grid-column: auto;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  border-color: var(--line-dark);
+}
+
+.gis-screen-mode .gis-scene-overlay :is(.seg, .sel, .btn) {
+  background: var(--navy-800);
+  border-color: var(--line-dark);
+  color: #c9ddf5;
+  font-size: 0.8125rem;
+}
+
+.gis-screen-mode .gis-scene-overlay :is(.seg:hover, .btn:not(:disabled):hover) {
+  background: var(--navy-700);
+  color: #fff;
+}
+
+.gis-screen-mode .gis-scene-overlay :is(.seg.on, .btn.primary) {
+  background: var(--blue-deep);
+  color: #fff;
+}
+
+.gis-screen-mode .gis-scene-overlay .sel {
+  color-scheme: dark;
+}
+
+.gis-screen-mode #twin-box :is(button, select):focus-visible,
+.gis-screen-mode :is(.gis-stage-sidebar, .gis-stage-tools, .gis-scene-settings) :focus-visible {
+  outline: 2px solid #8ee8ff;
+  outline-offset: -2px;
+}
+
+.gis-screen-mode .twin-info {
+  right: var(--scene-inset);
+  bottom: var(--scene-inset);
+  width: min(270px, calc(100% - 24px));
+  max-height: min(24rem, calc(100% - 72px));
+  overflow: auto;
+}
+
+@media (max-width: 68rem) {
+  .gis-screen-mode .gis-stage {
+    --scene-rail-top: calc(var(--scene-inset) + var(--gis-hud-height, 72px) + 8px);
+  }
+
+  .gis-screen-mode .gis-scene-hud {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas: "tools help" "scenes scenes";
+  }
+
+  .gis-screen-mode .gis-scene-overlay {
+    justify-self: start;
+  }
+
+  .gis-screen-mode .gis-scene-hud .hud-live {
+    grid-row: 3;
+  }
+}
+
+@media (max-width: 48rem) {
+  .gis-screen-mode .gis-scene-hud .twin-hud {
+    gap: 6px;
+  }
+
+  .gis-screen-mode .gis-scene-hud .twin-hud .hud-btn {
+    padding-inline: 8px;
+  }
+
+  .gis-screen-mode .gis-stage-sidebar {
+    width: min(18rem, calc(100% - 2 * var(--scene-inset)));
+  }
+
+  .gis-screen-mode .gis-stage-tools {
+    left: var(--scene-inset);
+    max-height: min(60%, 25rem, max(0px, calc(100% - var(--scene-rail-top) - var(--scene-inset))));
+  }
+
+  .gis-screen-mode .gis-stage:has(.gis-stage-tools:not([hidden])) .twin-info {
+    max-height: min(24%, 11rem);
+  }
+
+  .gis-screen-mode .gis-stage:has(.gis-stage-tools:not([hidden])) .twin-legend {
+    visibility: hidden;
+  }
+}
+
+@media (max-width: 40rem) {
+  .gis-screen-mode .gis-scene-overlay #gis-mode svg {
+    display: none;
+  }
+
+  .gis-screen-mode .gis-scene-overlay #gis-mode .seg {
+    font-size: clamp(0.7rem, 3.6vw, 0.8125rem);
+  }
+
+  .gis-screen-mode .gis-scene-hud .twin-hud .hud-btn svg {
+    display: none;
+  }
+
+  .gis-screen-mode #twin-box:has(.twin-info.show) .twin-legend {
+    visibility: hidden;
+  }
+}
+
+@media (max-width: 29rem) {
+  .gis-screen-mode .gis-stage {
+    --scene-rail-top: calc(var(--scene-inset) + var(--gis-hud-height, 112px) + 8px);
+  }
+
+  .gis-screen-mode .gis-scene-overlay {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
