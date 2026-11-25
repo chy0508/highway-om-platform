@@ -43,7 +43,7 @@
   /* ---------- 导航定义 ---------- */
   const NAV = [
     { key: 'dashboard', name: '综合驾驶舱', icon: 'dash' },
-    { key: 'gis', name: '数字孪生一张图', icon: 'map' },
+    { key: 'gis', name: '数字孪生一张图', icon: 'map', params: { display: 'screen' } },
     { key: 'devices', name: '设备监测', icon: 'dev', children: [
       { name: '设备总览', params: {} }, { name: '监控设施', params: { cat: 'monitor' } },
       { name: '通信设施', params: { cat: 'comm' } }, { name: '收费设施', params: { cat: 'toll' } },
@@ -96,7 +96,7 @@
         <img src="assets/platform-logo.svg" width="24" height="24" alt="" class="drive-brand-mark"><h1>机电智能运维平台 <span>· 综合驾驶舱</span></h1>
       </div>
       <nav class="drive-top-nav" aria-label="驾驶舱业务导航">${primaryNav.map(item => {
-        const target = item.key === 'gis' ? '#/gis?display=screen' : `#/${item.key}`;
+        const target = routeHash(item.key, item.params);
         return `<a href="${target}" data-module="${item.key}">${icon(item.icon, 14)}${item.name}</a>`;
       }).join('')}</nav>
       <div class="drive-actions"><button class="drive-toggle" type="button"></button></div>
@@ -159,9 +159,12 @@
     if (qs) qs.split('&').forEach(kv => { const [k, v] = kv.split('='); params[decodeURIComponent(k)] = decodeURIComponent(v || ''); });
     return { page: Pages[page] ? page : 'dashboard', params };
   }
-  function go(page, params) {
+  function routeHash(page, params) {
     const qs = params && Object.keys(params).length ? '?' + Object.entries(params).map(([k, v]) => encodeURIComponent(k) + '=' + encodeURIComponent(v)).join('&') : '';
-    location.hash = '#/' + page + qs;
+    return '#/' + page + qs;
+  }
+  function go(page, params) {
+    location.hash = routeHash(page, params);
   }
   function render() {
     current = parseHash();
@@ -249,7 +252,7 @@
         });
         html += '</div></div>';
       } else {
-        html += `<div class="nav-item ${current.page === item.key ? 'active' : ''}" data-page="${item.key}" data-params="{}">${icon(item.icon)}<span>${item.name}</span></div>`;
+        html += `<div class="nav-item ${current.page === item.key ? 'active' : ''}" data-page="${item.key}" data-params='${JSON.stringify(item.params || {})}'>${icon(item.icon)}<span>${item.name}</span></div>`;
       }
     });
     nav.innerHTML = html;
