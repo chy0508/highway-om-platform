@@ -152,11 +152,13 @@
       const day = this.time === 'day';
       const M = this.mode;
       if (M === 'macro') {
-        this.scene.background = new THREE.Color(day ? (this.routeLandscape?.visible ? 0xbacbd9 : 0xc5cfda) : 0x060f22);
-        this.hemi.intensity = day ? 0.7 : 0.25;
+        const terrain = this.routeLandscape?.visible;
+        this.scene.background = new THREE.Color(day ? (terrain ? 0xbacbd9 : 0xc5cfda) : 0x060f22);
+        if (this.routeSky) this.routeSky.visible = day && terrain;
+        this.hemi.intensity = day ? (terrain ? .86 : .7) : .25;
         this.hemi.color.set(day ? 0xbfd9ff : 0x2a4a7c);
         this.hemi.groundColor.set(day ? 0x8a7a5a : 0x0a1424);
-        this.sun.intensity = day ? .95 : 0.18;
+        this.sun.intensity = day ? (terrain ? 1.34 : .95) : .18;
         this.sun.color.set(day ? 0xfff0d0 : 0x8fb4ff);
         this.rim.intensity = day ? 0.35 : 0.5;
         this.amb.intensity = day ? 0.5 : 0.4;
@@ -220,14 +222,27 @@
     buildMacro() {
       const S = this.scene;
       const r = D.rng('macro-env');
-      this.routeLandscape = routeCorridor.landscape(this.renderer.capabilities.getMaxAnisotropy());
-      S.add(this.routeLandscape);
+      const anisotropy = this.renderer.capabilities.getMaxAnisotropy();
+      this.routeLandscape = routeCorridor.landscape(anisotropy);
+      this.routeSky = routeCorridor.daylightSky();
+      S.add(this.routeLandscape, this.routeSky);
+      this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+      this.renderer.shadowMap.autoUpdate = false;
+      this.sun.position.set(135, 345, -205);
+      const shadow = this.sun.shadow;
+      shadow.mapSize.set(2048, 2048);
+      Object.assign(shadow.camera, { left: -354, right: 354, top: 238, bottom: -238, near: 35, far: 860 });
+      shadow.camera.updateProjectionMatrix();
+      shadow.normalBias = .095;
+      shadow.bias = -.00018;
+      this.routeLandscape.children[0].castShadow = true;
       this.routeGrid = new THREE.GridHelper(920, 92, 0x71869a, 0x99adbb);
       this.routeGrid.material.transparent = true;
       this.routeGrid.material.opacity = .42;
       this.routeGrid.position.y = -.5;
       S.add(this.routeGrid);
       this.routeGroundAnchors = [];
+      this.routeHighlights = [];
       const groundAnchor = (object, rise) => {
         this.routeGroundAnchors.push({ object, base: object.position.y, rise });
       };
@@ -274,13 +289,21 @@
         pv.set(x, base + 6, z); m4.compose(pv, q, sc); roofs.setMatrixAt(i, m4);
       }
       this.routeLandscape.add(houses, roofs);
-      this.routeLandscape.add(routeCorridor.forest(D.rng('macro-forest')));
-      S.add(...routeCorridor.engineering());
+      [hi, houses, roofs].forEach(mesh => { mesh.castShadow = true; mesh.receiveShadow = true; });
+      this.routeLandscape.add(routeCorridor.forest(D.rng('macro-forest'), anisotropy, () => {
+        if (!this.dead && this.routeLandscape.visible) this.renderer.shadowMap.needsUpdate = true;
+      }));
+      const engineering = routeCorridor.engineering(anisotropy);
+      engineering.forEach(group => group.traverse(mesh => {
+        if (mesh.isMesh && !mesh.material.isMeshBasicMaterial) mesh.receiveShadow = true;
+      }));
+      S.add(...engineering);
       // 隧道山体 + 洞口 + 标签 + 下钻热区
+      const stone = routeCorridor.portalStone(anisotropy);
       D.TUNNELS.forEach(t => {
         const cx = KM2X((t.start + t.end) / 2), cz = centerZ(cx);
         const len = KM2X(t.end) - KM2X(t.start);
-        S.add(routeCorridor.portal(KM2X(t.start), false, t.name), routeCorridor.portal(KM2X(t.end), true, t.name));
+        S.add(routeCorridor.portal(KM2X(t.start), false, t.name, stone), routeCorridor.portal(KM2X(t.end), true, t.name, stone));
         const spr = this.addLabel(t.name, t.hero ? '#4fd8f0' : '#cfe0f5', D.kmText(t.start) + '—' + D.kmText(t.end) + ' · 点击进入隧道孪生', cx, 52, cz, 10);
         spr.userData = { kind: 'tunnel', code: t.id, name: t.name };
         this.pickables.push(spr);
@@ -288,7 +311,7 @@
         pick.position.set(cx, 14, cz);
         pick.userData = { kind: 'tunnel', code: t.id, name: t.name };
         S.add(pick); this.pickables.push(pick);
-        if (t.hero) this.addPulse(cx, 8.2, cz, 0x4fd8f0, 7);
+        if (t.hero) this.routeHighlights.push(this.addPulse(cx, 8.2, cz, 0x4fd8f0, 7));
       });
       // 重点路段热区
       ROAD_SCENES.forEach(rs => {
@@ -299,7 +322,7 @@
         const pick = new THREE.Mesh(new THREE.BoxGeometry(24, 16, 14), new THREE.MeshBasicMaterial({ visible: false }));
         pick.position.set(x, 8, z); pick.userData = { kind: 'roadsec', code: rs.id, name: rs.name };
         S.add(pick); this.pickables.push(pick);
-        this.addPulse(x, 8.2, z, 0xffd24a, 5);
+        this.routeHighlights.push(this.addPulse(x, 8.2, z, 0xffd24a, 5));
       });
       // 收费站
       D.TOLLS.forEach(ts => {
@@ -325,11 +348,12 @@
         S.add(pick); this.pickables.push(pick);
       });
       // 机房
+      const utilityRoom = routeCorridor.utilityRoom();
       D.ROOMS.forEach(rm => {
         const x = KM2X(rm.km), z = centerZ(x) - 20;
         const rise = Math.max(0, routeCorridor.height(x, z));
-        const b = new THREE.Mesh(new THREE.BoxGeometry(8, 7, 8), new THREE.MeshStandardMaterial({ color: 0xd8d5cc, roughness: 0.7 }));
-        b.position.set(x, 3.5, z); S.add(b);
+        const b = utilityRoom.clone();
+        b.position.set(x, 0, z); S.add(b);
         groundAnchor(b, rise);
         const spr = this.addLabel(rm.name, '#cfe0f5', '点击进入机房孪生', x, 12, z, 5.5);
         groundAnchor(spr, rise);
@@ -338,7 +362,11 @@
         pick.position.set(x, 4, z); pick.userData = { kind: 'room', code: rm.id, name: rm.name };
         groundAnchor(pick, rise);
         S.add(pick); this.pickables.push(pick);
-        if (rm.id === 'MR-01') groundAnchor(this.addPulse(x, .2, z, 0x19e3ff, 5), rise);
+        if (rm.id === 'MR-01') {
+          const pulse = this.addPulse(x, .2, z, 0x19e3ff, 5);
+          groundAnchor(pulse, rise);
+          this.routeHighlights.push(pulse);
+        }
       });
       // 桩号
       for (const km of [0, 10, 20, 30, 40, 50, D.ROAD.end]) {
@@ -357,10 +385,13 @@
           const col = d.status === 'offline' ? '#94a3b8' : d.status === 'warn' ? '#f59e0b' : D.CATS[d.cat].color;
           texCache[key] = markerTexture(col, d.status !== 'online' ? '#ef4444' : null);
         }
-        const x = KM2X(d.km), z = centerZ(x) + (d.direction === '南向' ? 7 : -7);
-        const spr = new THREE.Sprite(new THREE.SpriteMaterial({ map: texCache[key], transparent: true, depthTest: false }));
-        const sz = D.HERO[d.code] ? 6 : 4;
-        spr.scale.set(sz, sz, 1); spr.position.set(x, 11, z);
+        const x = KM2X(d.km);
+        const spr = new THREE.Sprite(new THREE.SpriteMaterial({
+          map: texCache[key], transparent: true, depthWrite: false, sizeAttenuation: false
+        }));
+        const sz = D.HERO[d.code] ? .017 : .013;
+        spr.scale.set(sz, sz, 1);
+        spr.position.set(...routeCorridor.lateralPoint(x, d.direction === '南向' ? 6 : -6, 10.4));
         spr.userData = { kind: 'device', code: d.code, name: d.name };
         this.markerGroups[d.cat].add(spr); this.pickables.push(spr);
       });
@@ -369,8 +400,10 @@
       D.events.filter(D.isOpenMajor).forEach((e, i) => {
         const x = KM2X(e.km), z = centerZ(x) + (i ? 9 : -9);
         const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.8, 1.6, 42, 10, 1, true), new THREE.MeshBasicMaterial({ color: 0xef4444, transparent: true, opacity: 0.35, side: THREE.DoubleSide, depthWrite: false }));
-        beam.position.set(x, 29, z); this.eventGroup.add(beam);
-        this.addPulse(x, 8.2, z, 0xef4444, 8);
+        beam.position.set(x, 29, z);
+        const pulse = this.addPulse(x, 8.2, z, 0xef4444, 8);
+        this.eventGroup.add(beam, pulse);
+        this.routeHighlights.push(beam, pulse);
         const spr = this.addLabel('⚠ ' + e.name, '#ff9d9d', e.id + ' · 影响' + e.affected.length + '台', x, 52, z, 7);
         spr.userData = { kind: 'event', code: e.id, name: e.name };
         this.eventGroup.add(spr); this.pickables.push(spr);
@@ -381,9 +414,12 @@
       // 任务点
       this.taskGroup = new THREE.Group(); S.add(this.taskGroup);
       D.tasks.forEach(t => {
-        const x = KM2X(t.km), z = centerZ(x) - 13;
-        const spr = new THREE.Sprite(new THREE.SpriteMaterial({ map: markerTexture('#8b5cf6'), transparent: true, depthTest: false }));
-        spr.scale.set(4.5, 4.5, 1); spr.position.set(x, 10, z);
+        const x = KM2X(t.km);
+        const spr = new THREE.Sprite(new THREE.SpriteMaterial({
+          map: markerTexture('#8b5cf6'), transparent: true, depthWrite: false, sizeAttenuation: false
+        }));
+        spr.scale.set(.013, .013, 1);
+        spr.position.set(...routeCorridor.lateralPoint(x, -8, 10.4));
         spr.userData = { kind: 'task', code: t.id, name: t.type };
         this.taskGroup.add(spr); this.pickables.push(spr);
       });
@@ -1047,15 +1083,24 @@
       if (this.carsTunnel) this.carsTunnel.mesh.count = Math.min(Math.round(n / 3), this.carsTunnel.max);
     }
     setFog(v) { this.fogAmt = v; if (!this.fallbackEl) this.applyFog(); }
-    setLabels(on) { this.labelsOn = on; this.labelSprites.forEach(s => { s.visible = on; }); }
+    setLabels(on) {
+      this.labelsOn = on;
+      this.labelSprites.forEach(s => { s.visible = on; });
+      this.routeHighlights?.forEach(object => { object.visible = on; });
+    }
     setEquip(key, on) { this.equip[key] = on; if (this.equipGroups[key]) this.equipGroups[key].visible = on; }
     setQuality(q) { if (this.fallbackEl) return; const cap = q === 'low' ? 1 : q === 'high' ? 2 : 1.5; this.renderer.setPixelRatio(Math.min(devicePixelRatio || 1, cap)); this.resize(); }
     setRouteTerrain(on) {
       if (!this.routeLandscape || !this.routeGrid) return;
       this.routeLandscape.visible = on;
       this.routeGrid.visible = !on;
+      // Landscape and structure shadows are static. Only redraw when their visibility changes.
+      this.sun.castShadow = on;
+      this.renderer.shadowMap.enabled = on;
+      this.renderer.shadowMap.needsUpdate = on;
       for (const { object, base, rise } of this.routeGroundAnchors) object.position.y = base + (on ? rise : 0);
       if (this.scene.background) { this.applyTime(); this.applyFog(); }
+      this.applyStatusFilter();
     }
     setLayer(key, on) {
       this.layers[key] = on;
@@ -1064,13 +1109,14 @@
       else if (this.markerGroups && this.markerGroups[key]) this.markerGroups[key].visible = on;
       this.applyStatusFilter();
     }
-    setStatusFilter(st) { this.statusFilter = st || 'all'; this.applyStatusFilter(); }
+    setStatusFilter(st) { this.statusFilterChoice = st; this.applyStatusFilter(); }
     applyStatusFilter() {
       if (!this.markerGroups) return;
-      const f = this.statusFilter || 'all';
+      const f = this.statusFilterChoice || (this.routeLandscape.visible ? 'attention' : 'all');
+      this.statusFilter = f;
       Object.values(this.markerGroups).forEach(g => g.children.forEach(spr => {
-        const d = D.byCode[spr.userData.code];
-        spr.visible = f === 'all' || (d && d.status === f);
+        const status = D.byCode[spr.userData.code]?.status;
+        spr.visible = f === 'all' || (f === 'attention' ? status === 'warn' || status === 'offline' : status === f);
       }));
     }
     setView(v) {
@@ -1084,6 +1130,37 @@
       else if (v === 'side') { this.goal.phi = 1.35; this.goal.theta = 0.1; this.goal.r = M === 'macro' ? 200 : M === 'room' ? 30 : 90; }
       else { this.resetView(); return; }
       this.lastInteract = performance.now();
+    }
+    focusPortal(id, immediate = false) {
+      if (this.fallbackEl || !this.routeLandscape?.visible) return false;
+      const current = this.targetGoal.x;
+      let mouth;
+      for (const tunnel of D.TUNNELS) {
+        if (id && tunnel.id !== id) continue;
+        for (const [chainage, direction] of [[tunnel.start, 1], [tunnel.end, -1]]) {
+          const x = KM2X(chainage);
+          const tollOnApproach = D.TOLLS.some(toll => {
+            const approach = direction * (x - KM2X(toll.km));
+            return approach > 0 && approach < 46;
+          });
+          const score = Math.abs(current - x) + (tollOnApproach ? 85 : 0);
+          if (!mouth || score < mouth.score) mouth = { x, direction, score };
+        }
+      }
+      if (!mouth) return false;
+      const { x, direction } = mouth;
+      const yaw = -Math.PI / 2 - routeCorridor.heading(x) + (direction < 0 ? Math.PI : 0);
+      const angle = yaw - this.sph.theta;
+      this.stopTour?.();
+      this.autoRotate = false;
+      this.targetGoal.set(x, 16, centerZ(x));
+      Object.assign(this.goal, { r: 41, phi: 1.36, theta: this.sph.theta + Math.atan2(Math.sin(angle), Math.cos(angle)) });
+      if (immediate) {
+        this.target.copy(this.targetGoal);
+        Object.assign(this.sph, this.goal);
+      }
+      this.lastInteract = performance.now();
+      return true;
     }
     focus(code) {
       if (this.fallbackEl) return;
@@ -1148,8 +1225,9 @@
     loop() {
       if (this.dead) return;
       this.raf = requestAnimationFrame(() => this.loop());
-      const dt = Math.min(this.clock.getDelta(), 0.05);
-      const k = 1 - Math.pow(0.0015, dt);
+      const elapsed = this.clock.getDelta();
+      const dt = Math.min(elapsed, 0.05);
+      const k = 1 - Math.pow(0.0015, Math.min(elapsed, .25));
       this.sph.r += (this.goal.r - this.sph.r) * k;
       this.sph.theta += (this.goal.theta - this.sph.theta) * k;
       this.sph.phi += (this.goal.phi - this.sph.phi) * k;
@@ -1162,6 +1240,7 @@
         this.target.z + r * Math.sin(phi) * Math.cos(theta)
       );
       this.camera.lookAt(this.target);
+      if (this.routeSky?.visible) this.routeSky.position.copy(this.camera.position);
       this.pulses.forEach(p => {
         p.t += dt;
         if (p.blink) { p.mesh.material.opacity = 0.4 + Math.abs(Math.sin(p.t * 3)) * 0.6; p.mesh.material.transparent = true; return; }
@@ -1211,6 +1290,7 @@
           ms.forEach(m => { if (m.map) m.map.dispose(); m.normalMap?.dispose(); m.dispose(); });
         }
       });
+      this.sun?.shadow.map?.dispose();
       if (this.renderer) { this.renderer.dispose(); this.renderer.domElement.remove(); }
       this.fallbackMap?.destroy();
       this.fallbackEl?.remove();

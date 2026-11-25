@@ -303,6 +303,8 @@
       const sceneFocus = () => mode === startMode && sceneKey === startScene ? params.focus : undefined;
       let twin = null;
       let terrain = params.environment !== 'off';
+      let markerFilter;
+      let labelsBeforePortal;
       let buildSeq = 0;
       const ROAD = Twin.ROAD_SCENES;
       const compactQuery = screen ? U.compactCockpit : null;
@@ -328,8 +330,8 @@
             <div class="card dark-panel mt" id="gis-status-card">
               <div class="card-h"><span class="card-t">状态筛选</span></div>
               <div class="card-b"><div class="pills" id="gis-status">
-                <span class="pill on" data-s="all">全部</span><span class="pill" data-s="online">在线</span>
-                <span class="pill" data-s="warn">异常</span><span class="pill" data-s="offline">离线</span>
+                ${[['all', '全部'], ['attention', '异常及离线'], ['online', '在线'], ['warn', '异常'], ['offline', '离线']]
+                  .map(([key, label]) => `<button type="button" class="pill" data-s="${key}" aria-pressed="false">${label}</button>`).join('')}
               </div>
               <div class="divider" style="background:var(--line-dark)"></div>
               <div class="small" style="color:#7e95b8;line-height:1.8">点位颜色=专业类别；外圈红色=异常/离线；红色光柱=严重诊断事件；紫色点位=现场检测任务。</div>
@@ -421,6 +423,7 @@
       const box = el.querySelector('#twin-box');
       bindTwinHelp(box);
       const info = el.querySelector('#twin-info');
+      const insideButton = el.querySelector('#hud-inside');
       const overlayButtons = Array.from(box.querySelectorAll('[data-gis-overlay]'));
       const settingsPanel = el.querySelector('#gis-scene-settings');
       const tourPlay = settingsPanel?.querySelector('#gis-tour-play');
@@ -487,7 +490,9 @@
         if (twin) reflectAuto(twin.autoRotate);
       }
       function selectPreset(value) {
+        if (mode === 'macro' && terrain && value === 'close') return showPortal();
         if (!twin?.setPresetView?.(value)) return false;
+        restorePortalLabels();
         setAuto(false);
         reflectPreset(value);
         el.querySelector('#ctl-view').value = { overview: 'orbit', top: 'top', side: 'side', close: 'inside' }[value];
@@ -508,7 +513,7 @@
         const scope = settingsPanel.querySelector('#gis-weather-scope');
         scope.textContent = mode === 'tunnel' ? '雨雪显示在洞口外。' : mode === 'room' ? '机房天气效果显示在场景背景。' : '';
         scope.hidden = !scope.textContent || !available;
-        settingsPanel.querySelector('[data-view-preset="close"]').textContent = mode === 'tunnel' ? '洞内' : '近景';
+        settingsPanel.querySelector('[data-view-preset="close"]').textContent = mode === 'tunnel' ? '洞内' : mode === 'macro' && terrain ? '洞口' : '近景';
         settingsPanel.querySelectorAll('select, #gis-time button, [data-view-preset], #gis-tour-play').forEach(control => {
           control.disabled = !available;
         });
@@ -836,6 +841,36 @@
         const opts = mode === 'tunnel' ? D.TUNNELS.map(t => [t.id, t.name]) : mode === 'room' ? D.ROOMS.map(r => [r.id, r.name]) : ROAD.map(r => [r.id, r.name]);
         sel.innerHTML = opts.map(([v, n]) => `<option value="${v}" ${v === sceneKey ? 'selected' : ''}>${n}</option>`).join('');
       }
+      function syncStatus() {
+        const status = markerFilter || (terrain ? 'attention' : 'all');
+        el.querySelectorAll('#gis-status .pill').forEach(button => {
+          const active = button.dataset.s === status;
+          button.classList.toggle('on', active);
+          button.setAttribute('aria-pressed', String(active));
+        });
+      }
+      function syncNearView() {
+        insideButton.style.display = mode === 'macro' && (!terrain || twin?.fallbackEl) ? 'none' : '';
+        const text = mode === 'tunnel' ? '洞内视角' : mode === 'macro' ? '洞口视角' : '贴近视角';
+        insideButton.innerHTML = U.icon('play', 13) + ' ' + text;
+      }
+      function showPortal(id, immediate = false) {
+        if (!twin?.focusPortal(id, immediate)) return false;
+        const labels = el.querySelector('#ctl-labels');
+        labelsBeforePortal ??= labels.classList.contains('on');
+        setSwitchState(labels, false);
+        twin.setLabels(false);
+        setAuto(false);
+        reflectPreset('close');
+        el.querySelector('#ctl-view').value = 'inside';
+        return true;
+      }
+      function restorePortalLabels() {
+        if (labelsBeforePortal === undefined) return;
+        setSwitchState(el.querySelector('#ctl-labels'), labelsBeforePortal);
+        twin?.setLabels(labelsBeforePortal);
+        labelsBeforePortal = undefined;
+      }
       function syncConsole() {
         const eqMap = { macro: [], road: ['cam', 'vms', 'power'], tunnel: ['cam', 'fan', 'light', 'power'], room: ['cam', 'fan', 'light', 'power'] };
         const active = eqMap[mode];
@@ -848,9 +883,8 @@
         el.querySelector('#ctl-room').style.display = mode === 'room' ? '' : 'none';
         el.querySelector('#ctl-view option[value="inside"]').disabled = mode === 'macro' && !screen;
         el.querySelector('#gis-status-card').style.display = mode === 'macro' ? '' : 'none';
-        const inside = el.querySelector('#hud-inside');
-        inside.style.display = mode === 'macro' ? 'none' : '';
-        inside.innerHTML = mode === 'tunnel' ? U.icon('play', 13) + ' 洞内视角' : U.icon('play', 13) + ' 贴近视角';
+        syncNearView();
+        syncStatus();
       }
       function buildTwin() {
         const seq = ++buildSeq;
@@ -888,6 +922,7 @@
           twin.setTraffic(+el.querySelector('#ctl-traffic').value);
           twin.setFog(+el.querySelector('#ctl-fog').value / 100);
           twin.setLabels(el.querySelector('#ctl-labels').classList.contains('on'));
+          twin.setStatusFilter(markerFilter);
           twin.setQuality(el.querySelector('#ctl-quality').value);
           twin.autoRotate = el.querySelector('#ctl-auto').classList.contains('on');
           el.querySelectorAll('[data-eq]').forEach(sw => twin.setEquip(sw.dataset.eq, sw.classList.contains('on')));
@@ -901,6 +936,8 @@
             renderTelemetry(twin.roomSim, twin.simHist);
           }
           setupSceneSettings();
+          syncNearView();
+          if (mode === 'macro' && !sceneFocus() && params.portal) showPortal(params.portal, true);
           loading.style.display = 'none';
           buildLayers();
           if (sceneFocus()) {
@@ -936,7 +973,12 @@
         terrainButton.onclick = () => {
           terrain = !terrain;
           twin?.setRouteTerrain(terrain);
+          if (!terrain) restorePortalLabels();
           reflectTerrain();
+          syncNearView();
+          syncStatus();
+          const closePreset = settingsPanel?.querySelector('[data-view-preset="close"]');
+          if (closePreset) closePreset.textContent = terrain ? '洞口' : '近景';
           history.replaceState(history.state, '', '#/gis?' + new URLSearchParams({...params, mode:'macro', environment:terrain ? 'on' : 'off'}));
         };
       }
@@ -951,8 +993,14 @@
         if (screen || mode === 'tunnel') { openScene(mode, ev.target.value); return; }
         sceneKey = ev.target.value; rebuild();
       });
-      el.querySelector('#hud-top').addEventListener('click', () => { if (!screen || !selectPreset('top')) twin?.topView(); });
-      el.querySelector('#hud-inside').addEventListener('click', () => { if (!screen || !selectPreset('close')) twin?.insideView(); });
+      el.querySelector('#hud-top').addEventListener('click', () => {
+        restorePortalLabels();
+        if (!screen || !selectPreset('top')) twin?.topView();
+      });
+      insideButton.addEventListener('click', () => {
+        if (mode === 'macro') showPortal();
+        else if (!screen || !selectPreset('close')) twin?.insideView();
+      });
       function reflectAuto(on) {
         const auto = el.querySelector('#hud-auto');
         auto.classList.toggle('on', on);
@@ -967,9 +1015,9 @@
       el.querySelector('#hud-auto').addEventListener('click', ev => setAuto(!ev.currentTarget.classList.contains('on')));
       el.querySelector('#ctl-auto').addEventListener('click', ev => setAuto(!ev.currentTarget.classList.contains('on')));
       el.querySelectorAll('#gis-status .pill').forEach(p => p.addEventListener('click', () => {
-        el.querySelectorAll('#gis-status .pill').forEach(x => x.classList.remove('on'));
-        p.classList.add('on');
-        twin && twin.setStatusFilter(p.dataset.s);
+        markerFilter = p.dataset.s;
+        twin?.setStatusFilter(markerFilter);
+        syncStatus();
       }));
       /* ---- 控制台 ---- */
       el.querySelector('#ctl-fog').addEventListener('input', ev => {
@@ -982,6 +1030,7 @@
       });
       el.querySelector('#ctl-rand').addEventListener('click', () => { twin && twin.randomize(); U.toast('已随机重布车流', 'ok'); });
       el.querySelector('#ctl-labels').addEventListener('click', ev => {
+        labelsBeforePortal = undefined;
         const control = ev.currentTarget;
         const checked = !control.classList.contains('on');
         setSwitchState(control, checked);
@@ -1020,6 +1069,7 @@
         });
       });
       el.querySelector('#ctl-reset').addEventListener('click', () => {
+        restorePortalLabels();
         if (!screen || !selectPreset('overview')) twin?.resetView();
         el.querySelector('#ctl-view').value = 'orbit';
       });

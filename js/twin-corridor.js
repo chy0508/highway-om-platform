@@ -12,12 +12,38 @@
   const boreRise = boreRadius;
   const portalY = roadY - .06;
 
+  // Surface and sky photographs are adapted from Poly Haven's CC0 assets:
+  // aerial_grass_rock, rocky_terrain_02, stone_wall, kloppenheim_03_puresky,
+  // island_tree_01 (leaf textures), and clean_asphalt.
+  function texture(file, anisotropy, { repeat, color = true, onLoad } = {}) {
+    const map = new THREE.TextureLoader().load('assets/3d/' + file, onLoad);
+    if (repeat) {
+      map.wrapS = map.wrapT = THREE.RepeatWrapping;
+      map.repeat.set(...repeat);
+    }
+    map.anisotropy = Math.min(8, anisotropy);
+    if (color) map.encoding = THREE.sRGBEncoding;
+    return map;
+  }
+
+  function daylightSky() {
+    const sky = new THREE.Mesh(new THREE.SphereGeometry(1100, 48, 24), new THREE.MeshBasicMaterial({
+      map: texture('network-day-sky.png', 1),
+      side: THREE.BackSide, depthWrite: false, fog: false
+    }));
+    sky.name = '日间天空';
+    sky.rotation.y = Math.PI * .55;
+    sky.renderOrder = -100;
+    sky.frustumCulled = false;
+    return sky;
+  }
+
   function reliefAt(x, z) {
-    const bend = z + 14 * Math.sin(x * .024) + 6 * Math.sin(x * .057 + z * .048);
-    const ridge = 1 - Math.abs(Math.sin(bend * .039 + x * .012));
-    return 29 + 15 * Math.sin(x * .023 - z * .019) + 38 * ridge ** 1.7
-      + 7 * Math.sin(x * .085 + z * .11) * Math.cos(z * .056 - x * .036)
-      + 2.2 * Math.cos(x * .24 + z * .28) + 1.3 * Math.sin(z * .43 - x * .18);
+    const bend = z + 19 * Math.sin(x * .021) + 8 * Math.sin(x * .042 + z * .035);
+    const ridge = .5 + .5 * Math.cos(bend * .048 + x * .026);
+    return 26 + 14 * Math.sin(x * .021 - z * .017) + 32 * ridge ** 1.5
+      + 5.5 * Math.sin(x * .071 + z * .085) * Math.cos(z * .054 - x * .034)
+      + 1.1 * Math.cos(x * .17 + z * .23) + .55 * Math.sin(z * .37 - x * .19);
   }
 
   function create(center, tunnels) {
@@ -28,16 +54,17 @@
     function height(x, z) {
       const offset = z - center(x);
       const bank = smooth(Math.abs(z - river(x)), riverWidth(x) - 2, riverWidth(x) + 8);
-      const slopes = smooth(Math.abs(offset), 16, 94);
+      const slopes = smooth(Math.abs(offset), 9, 103);
       let h = mix(roadY - .65, reliefAt(x, z), slopes);
       const shoulder = (1 - smooth(Math.abs(offset), 8, 26)) * smooth(Math.abs(x), 280, 315);
       h -= 4 * shoulder;
       for (const { start, end } of tunnels) {
         const inset = Math.min(x - start, end - x);
         const distance = Math.abs(offset);
-        const cover = smooth(inset, .8, 4.6) * (1 - smooth(distance, 8, 33));
-        const flank = smooth(inset, -24, 2) * smooth(distance, 10, 22) * (1 - smooth(distance, 29, 80));
-        h += cover * (19 + 5 * Math.sin((x - start) * .15 + offset * .096)) + 21 * flank;
+        const envelope = 1 - smooth(distance, 8, 46);
+        const cover = 5.8 * smooth(inset, .25, 5.7) + 11 * smooth(inset, 5.2, 21);
+        const flank = smooth(inset, -29, 8) * smooth(distance, 7, 30) * (1 - smooth(distance, 35, 95));
+        h += envelope * cover + 12 * flank;
       }
       return mix(-5 + .6 * Math.cos(z * .42 + x * .52), h, bank);
     }
@@ -46,26 +73,30 @@
       return Math.hypot(height(x + 1.5, z) - h, height(x, z + 1.5) - h) / 1.5;
     }
 
-    function cutPortalOpenings(material) {
+    function shadeTerrain(material, scrubMap) {
       // The terrain mesh is a height field. Mask its intersections with the
       // two arched openings near each mouth, leaving the mountain above them.
       const mouths = tunnels.flatMap(({ start, end }) => [[start, 1], [end, -1]].map(([x, sign]) => {
         const angle = heading(x);
         return new THREE.Vector4(x, center(x), sign * Math.cos(angle), sign * Math.sin(angle));
       }));
-      if (!mouths.length) return;
       material.userData.boreCutCount = mouths.length;
-      material.customProgramCacheKey = () => 'portal-openings-' + mouths.length;
+      material.addEventListener('dispose', () => scrubMap.dispose());
+      material.customProgramCacheKey = () => 'wooded-terrain-' + mouths.length;
       material.onBeforeCompile = shader => {
-        shader.uniforms.portalMouths = { value: mouths };
+        if (mouths.length) shader.uniforms.portalMouths = { value: mouths };
+        shader.uniforms.scrubMap = { value: scrubMap };
         shader.vertexShader = shader.vertexShader
-          .replace('#include <common>', '#include <common>\nvarying vec3 terrainPosition;')
-          .replace('#include <begin_vertex>', '#include <begin_vertex>\nterrainPosition = (modelMatrix * vec4(transformed, 1.0)).xyz;');
-        shader.fragmentShader = shader.fragmentShader
           .replace('#include <common>', `#include <common>
+            attribute float scrubCoverage;
+            varying float terrainScrub;
             varying vec3 terrainPosition;
-            uniform vec4 portalMouths[${mouths.length}];`)
-          .replace('#include <clipping_planes_fragment>', `#include <clipping_planes_fragment>
+            varying vec3 terrainNormal;`)
+          .replace('#include <begin_vertex>', `#include <begin_vertex>
+            terrainScrub = scrubCoverage;
+            terrainNormal = mat3(modelMatrix) * normal;
+            terrainPosition = (modelMatrix * vec4(transformed, 1.0)).xyz;`);
+        const aperture = mouths.length ? `
             for (int i = 0; i < ${mouths.length}; i++) {
               vec4 mouth = portalMouths[i];
               vec2 delta = terrainPosition.xz - mouth.xy;
@@ -74,9 +105,28 @@
               float offset = abs(cross - ${boreCenters[1]});
               float ratio = offset / ${boreRadius + .24};
               float ceiling = ${portalY + boreWall} + ${boreRise + .27} * sqrt(max(0.0, 1.0 - ratio * ratio));
-              if (distanceIn > -1.6 && distanceIn < 6.2 && ratio < 1.0 &&
+              if (distanceIn > -1.6 && distanceIn < 10.4 && ratio < 1.0 &&
                   terrainPosition.y > ${roadY - .42} && terrainPosition.y < ceiling) discard;
-            }`);
+            }` : '';
+        shader.fragmentShader = shader.fragmentShader
+          .replace('#include <common>', `#include <common>
+            varying float terrainScrub;
+            varying vec3 terrainPosition;
+            varying vec3 terrainNormal;
+            uniform sampler2D scrubMap;
+            ${mouths.length ? 'uniform vec4 portalMouths[' + mouths.length + '];' : ''}`)
+          .replace('#include <clipping_planes_fragment>', '#include <clipping_planes_fragment>' + aperture)
+          .replace('#include <map_fragment>', `
+            vec3 slopes = abs(normalize(terrainNormal));
+            vec3 weights = pow(slopes, vec3(5.0));
+            weights /= weights.x + weights.y + weights.z;
+            vec4 grassFlat = mapTexelToLinear(texture2D(map, terrainPosition.xz * .103));
+            vec4 grassEast = mapTexelToLinear(texture2D(map, terrainPosition.zy * .103));
+            vec4 grassNorth = mapTexelToLinear(texture2D(map, terrainPosition.xy * .103));
+            vec4 openGrass = grassFlat * weights.y + grassEast * weights.x + grassNorth * weights.z;
+            vec2 scrubUv = vec2(terrainPosition.x + .17 * terrainPosition.z, terrainPosition.z) * .067;
+            vec4 scrub = mapTexelToLinear(texture2D(scrubMap, scrubUv));
+            diffuseColor *= mix(openGrass, scrub, terrainScrub);`);
       };
     }
 
@@ -87,35 +137,34 @@
       const pos = ground.attributes.position;
       for (let i = 0; i < pos.count; i++) pos.setY(i, height(pos.getX(i), pos.getZ(i)));
       ground.computeVertexNormals();
-      const grass = linear(0x65734d), scrub = linear(0x4c6342), rock = linear(0x9c927d);
-      const shore = linear(0x8f8370), tint = new THREE.Color();
+      const grass = linear(0xe1e9cd), scrub = linear(0xaebf9e), rock = linear(0xb9ad9e);
+      const shore = linear(0xa6ac96), tint = new THREE.Color();
       const colors = new Float32Array(pos.count * 3);
+      const scrubCoverage = new Float32Array(pos.count);
       for (let i = 0; i < pos.count; i++) {
         const x = pos.getX(i), z = pos.getZ(i), h = pos.getY(i);
         const strata = Math.sin(z * .18 + x * .11 + 1.2 * Math.sin(x * .054));
-        const stone = smooth(1 - ground.attributes.normal.getY(i) + .063 * strata + h * .0018, .11, .44);
-        const patch = smooth(Math.sin(x * .076) * Math.cos(z * .069 + x * .056), -.42, .59);
+        const stone = smooth(1 - ground.attributes.normal.getY(i) + .065 * strata, .36, .72);
+        const patch = smooth(Math.sin(x * .064 + z * .038) + .59 * Math.cos(z * .117 - x * .087), -.7, 1.18);
+        const hillside = smooth(Math.abs(z - center(x)), 8, 34);
+        scrubCoverage[i] = hillside * (.27 + .69 * patch) * (1 - .74 * stone);
         tint.copy(grass).lerp(scrub, patch).lerp(rock, stone);
         if (h < 3.5) tint.lerp(shore, 1 - smooth(h, waterY, 3.5));
         tint.multiplyScalar(.89 + .094 * patch + .053 * strata);
         tint.toArray(colors, i * 3);
       }
       ground.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-      const loader = new THREE.TextureLoader();
-      function texture(file, along, across, color = false) {
-        const tex = loader.load('assets/3d/' + file);
-        tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-        tex.repeat.set(along, across);
-        tex.anisotropy = Math.min(8, anisotropy);
-        if (color) tex.encoding = THREE.sRGBEncoding;
-        return tex;
-      }
+      ground.setAttribute('scrubCoverage', new THREE.BufferAttribute(scrubCoverage, 1));
       const terrainMaterial = new THREE.MeshStandardMaterial({
-        vertexColors: true, roughness: .93, map: texture('network-slope-detail.png', 25, 14, true),
-        normalMap: texture('network-rock-normal.png', 56, 32), normalScale: new THREE.Vector2(.9, .9)
+        vertexColors: true, roughness: .95,
+        map: texture('network-ground-grass.png', anisotropy, { repeat: [91, 54] }),
+        normalMap: texture('network-rock-normal.png', anisotropy, { color: false }),
+        normalScale: new THREE.Vector2(.18, .18)
       });
-      cutPortalOpenings(terrainMaterial);
-      group.add(new THREE.Mesh(ground, terrainMaterial));
+      shadeTerrain(terrainMaterial, texture('network-ground-scrub.png', anisotropy, { repeat: [1, 1] }));
+      const hillside = new THREE.Mesh(ground, terrainMaterial);
+      hillside.receiveShadow = true;
+      group.add(hillside);
       const water = new THREE.PlaneGeometry(1180, 2, 472, 9);
       water.rotateX(-Math.PI / 2);
       const points = water.attributes.position;
@@ -131,7 +180,8 @@
       water.setAttribute('color', new THREE.BufferAttribute(shades, 3));
       group.add(new THREE.Mesh(water, new THREE.MeshStandardMaterial({
         vertexColors: true, roughness: .36, metalness: .12,
-        normalMap: texture('songlan-water-normal.png', 56, 3), normalScale: new THREE.Vector2(.9, .9)
+        normalMap: texture('songlan-water-normal.png', anisotropy, { repeat: [56, 3], color: false }),
+        normalScale: new THREE.Vector2(.57, .57)
       })));
       return group;
     }
@@ -171,48 +221,115 @@
     }
 
     function leafCanopy(clusters) {
-      const shell = new THREE.IcosahedronGeometry(1, 1);
-      const shape = shell.attributes.position, shellNormals = shell.attributes.normal;
-      const vertices = [], normals = [], colors = [], normal = new THREE.Vector3();
+      const shell = new THREE.IcosahedronGeometry(1, 0);
+      const shape = shell.attributes.position, shellNormals = shell.attributes.normal, shellUVs = shell.attributes.uv;
+      const vertices = [], normals = [], colors = [], uvs = [], normal = new THREE.Vector3();
       for (const [dx, dy, dz, sx, sy, sz, brightness] of clusters) {
         for (let i = 0; i < shape.count; i++) {
           const x = shape.getX(i), y = shape.getY(i), z = shape.getZ(i);
-          const irregularity = .99 + .086 * Math.sin(x * 8.4 + y * 8.7 - z * 7.3 + dx * 2.8);
+          const irregularity = .86 + .09 * Math.sin(x * 8.4 + y * 8.7 - z * 7.3 + dx * 2.8);
           vertices.push(dx + sx * x * irregularity, dy + sy * y * irregularity, dz + sz * z * irregularity);
           normal.set(shellNormals.getX(i) / sx, shellNormals.getY(i) / sy, shellNormals.getZ(i) / sz).normalize();
           normals.push(normal.x, normal.y, normal.z);
           const shade = brightness * (.89 + .08 * y + .042 * Math.sin(z * 7 + x * 5));
           colors.push(shade, shade * 1.02, shade * .94);
+          uvs.push(shellUVs.getX(i) + dx * .33, shellUVs.getY(i) + dz * .27);
         }
       }
       shell.dispose();
+      const coreVertices = vertices.length / 3;
+      const clusterUVs = [[0, 0], [1, 0], [1, 1], [0, 0], [1, 1], [0, 1]];
+      for (const [dx, dy, dz, sx, sy, sz, brightness] of clusters) {
+        for (let k = 0; k < 9; k++) {
+          const yaw = k * 2.399963 + 3.7 * dx;
+          const y = -.5 + 1.44 * (k + .5) / 9;
+          const ring = Math.sqrt(1 - y * y);
+          const sine = Math.sin(yaw), cosine = Math.cos(yaw);
+          const direction = new THREE.Vector3(cosine * ring, y, sine * ring);
+          const right = new THREE.Vector3(-sine, 0, cosine);
+          const up = new THREE.Vector3().crossVectors(direction, right);
+          const width = (sx + sz) * .82, height = sy * 1.49;
+          const point = new THREE.Vector3(dx + sx * direction.x * .79,
+            dy + sy * direction.y * .81, dz + sz * direction.z * .79);
+          const shade = brightness * (.86 + .21 * y);
+          for (const [u, v] of clusterUVs) {
+            vertices.push(point.x + (u - .5) * width * right.x + (v - .5) * height * up.x,
+              point.y + (v - .5) * height * up.y,
+              point.z + (u - .5) * width * right.z + (v - .5) * height * up.z);
+            normals.push(direction.x, direction.y, direction.z);
+            colors.push(shade, shade, shade);
+            uvs.push(u, v);
+          }
+        }
+      }
       const geometry = new THREE.BufferGeometry();
       geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
       geometry.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
       geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+      geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+      geometry.addGroup(0, coreVertices, 0);
+      geometry.addGroup(coreVertices, vertices.length / 3 - coreVertices, 1);
       return geometry;
     }
 
-    function forest(rng) {
+    function forest(rng, anisotropy, onFoliageLoad) {
       const group = new THREE.Group();
       group.name = '河谷林地';
       const spots = [];
-      for (let i = 0; i < 7200 && spots.length < 1780; i++) {
-        const x = -365 + rng() * 730;
-        const z = center(x) + (rng() < .5 ? -1 : 1) * (23 + 187 * rng());
+      const planted = new Set();
+      function plant(x, z, nearPortal, undergrowth = false) {
         const h = height(x, z);
-        const soil = 1 - smooth(slope(x, z, h), .74, 1.32);
-        const clump = .09 + .83 * smooth(Math.sin(x * .081 + z * .042) + .72 * Math.sin(x * .131 - z * .077), -.49, 1.05);
-        if (h > 1.2 && rng() < clump * soil) {
-          const kind = rng() < (h > 30 ? .66 : .34) ? 0 : rng() < .56 ? 1 : 2;
-          spots.push({ x, z, h, kind, size: .55 + 1.07 * rng(), hue: rng(), yaw: Math.PI * 2 * rng() });
+        const overBore = tunnels.some(({ start, end }) => x > start + 8 && x < end - 8);
+        const offset = Math.abs(z - center(x));
+        if (h < 1.8 || (offset < 10.4 && !(overBore && h > 13.1))) return;
+        const key = Math.round(x / 2.5) + ',' + Math.round(z / 2.5);
+        if (planted.has(key)) return;
+        const gradient = slope(x, z, h);
+        const soil = nearPortal ? 1 - smooth(gradient, 1.05, 1.8) : 1 - smooth(gradient, .8, 1.48);
+        if (rng() > soil) return;
+        const conifers = nearPortal ? 0 : h > 37 ? .25 : .11;
+        const kind = rng() < conifers ? 0 : rng() < .54 ? 1 : 2;
+        const size = undergrowth ? .36 + .49 * rng() : nearPortal ? .92 + 1.2 * rng() : .62 + 1.28 * rng();
+        spots.push({ x, z, h, kind, size, hue: rng(), yaw: Math.PI * 2 * rng() });
+        planted.add(key);
+      }
+
+      for (const { start, end } of tunnels) {
+        for (const [mouth, sign] of [[start, 1], [end, -1]]) {
+          for (let station = -20; station < 36; station += 3.9) {
+            const x = mouth + sign * (station + 2.2 * rng());
+            for (let side = -1; side <= 1; side += 2) {
+              const firstRow = station > 8 ? 5 : 11.6;
+              for (let row = firstRow; row < 39; row += 4.6) {
+                const z = center(x) + side * (row + 2.7 * rng());
+                if (rng() > .13) plant(x + 1.15 * rng(), z, true);
+                if (row < 23 && rng() > .27) plant(x + 2.5, z + 1.9 * side, true, true);
+              }
+            }
+          }
+        }
+        for (let x = start + 8.9; x < end - 7.8; x += 2.8) {
+          for (let offset = -9; offset < 9; offset += 2.9) {
+            plant(x + rng() * 1.1, center(x) + offset + rng() * 1.3, true);
+          }
         }
       }
-      const trunk = new THREE.InstancedMesh(new THREE.CylinderGeometry(.095, .2, 2.15, 6),
+      for (let i = 0; i < 12800 && spots.length < 3650; i++) {
+        const x = -338 + rng() * 676;
+        const z = center(x) + (rng() < .5 ? -1 : 1) * (12 + 195 * rng() ** 1.28);
+        const clump = .24 + .72 * smooth(Math.sin(x * .083 + z * .059) + .71 * Math.sin(x * .142 - z * .071), -.63, 1);
+        if (rng() < clump) plant(x, z, false);
+      }
+      const trunk = new THREE.InstancedMesh(new THREE.CylinderGeometry(.057, .126, 1.86, 6),
         new THREE.MeshStandardMaterial({ color: linear(0x655748), roughness: 1 }), spots.length);
       const crown = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: .98, vertexColors: true });
       const needles = crown.clone();
       needles.side = THREE.DoubleSide;
+      crown.map = texture('network-canopy-detail.png', anisotropy, { repeat: [2, 2] });
+      const foliage = new THREE.MeshStandardMaterial({
+        map: texture('network-leaf-cluster.png', anisotropy, { onLoad: onFoliageLoad }), vertexColors: true,
+        roughness: .96, side: THREE.DoubleSide, alphaTest: .43
+      });
       const crowns = [
         needleCanopy(),
         leafCanopy([
@@ -225,25 +342,29 @@
           [.64, .74, .35, .56, .62, .56, .9], [-.29, .68, .68, .54, .57, .55, .94],
           [.23, .88, -.63, .54, .53, .48, .96], [-.13, 1.58, .17, .52, .52, .49, 1.08]
         ])
-      ].map((geometry, kind) => new THREE.InstancedMesh(geometry, kind === 0 ? needles : crown,
+      ].map((geometry, kind) => new THREE.InstancedMesh(geometry, kind === 0 ? needles : [crown, foliage],
         spots.filter(s => s.kind === kind).length));
       const transform = new THREE.Object3D(), tint = new THREE.Color();
       const indices = [0, 0, 0];
       spots.forEach(({ x, z, h, size, kind, hue, yaw }, i) => {
         transform.rotation.y = yaw;
-        transform.position.set(x, h + .92 * size, z);
+        transform.position.set(x, h + .76 * size, z);
         transform.scale.set(size, size, size);
         transform.updateMatrix();
         trunk.setMatrixAt(i, transform.matrix);
         const mesh = crowns[kind];
         const index = indices[kind]++;
-        transform.position.y = h + (kind === 0 ? .86 : 1.43) * size;
+        transform.position.y = h + (kind === 0 ? .86 : 1.18) * size;
         transform.scale.set((.83 + .23 * hue) * size, (1.12 - .15 * hue) * size, size);
         transform.updateMatrix();
         mesh.setMatrixAt(index, transform.matrix);
-        tint.setHSL([.273, .227, .195][kind] + .031 * hue, .23 + .13 * hue, .24 + .12 * hue);
+        tint.setHSL([.255, .234, .206][kind] + .045 * hue, .25 + .19 * hue, .26 + .17 * hue);
         mesh.setColorAt(index, tint.convertSRGBToLinear());
       });
+      for (const mesh of [trunk, ...crowns]) {
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+      }
       group.add(trunk, ...crowns);
       return group;
     }
@@ -264,7 +385,7 @@
     }
 
     function strip(intervals, profile, material, colorAt = null) {
-      const vertices = [], indices = [], colors = [];
+      const vertices = [], indices = [], colors = [], uvs = [];
       for (const [start, end] of intervals) {
         const count = Math.ceil((end - start) / 2.6);
         const first = vertices.length / 3;
@@ -273,6 +394,7 @@
           profile.forEach(([lateral, y]) => {
             vertices.push(...lateralPoint(x, lateral, y));
             if (colorAt) colors.push(...colorAt(x, start, end, y));
+            if (material.map) uvs.push(x / 2.1, lateral / 2.1);
           });
           if (p === count) continue;
           for (let k = 0; k < profile.length - 1; k++) {
@@ -284,6 +406,7 @@
       const geometry = new THREE.BufferGeometry();
       geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
       if (colorAt) geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+      if (material.map) geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
       geometry.setIndex(indices);
       geometry.computeVertexNormals();
       return new THREE.Mesh(geometry, material);
@@ -293,14 +416,16 @@
       return new THREE.MeshStandardMaterial({ color: linear(hex), roughness: .88, side: THREE.DoubleSide });
     }
 
-    function engineering() {
+    function engineering(anisotropy) {
       const decks = new THREE.Group(), paint = new THREE.Group(), structures = new THREE.Group();
       decks.name = '双幅桥面';
-      const road = [[-extent, extent]], asphalt = concrete(0x42474a), slab = concrete(0xa69e8d);
+      const road = [[-extent, extent]], asphalt = concrete(0xe1e3e1), slab = concrete(0x949487);
+      asphalt.map = texture('network-asphalt.png', anisotropy, { repeat: [1, 1] });
       const underground = tunnels.map(({ start, end }) => [start, end]);
       const ends = [-extent, ...underground.flat(), extent];
       const outdoor = ends.filter((_, i) => i % 2 === 0).map((x, i) => [x, ends[2 * i + 1]]);
-      const tunnelPavement = concrete(0x32373b);
+      const tunnelPavement = concrete(0x616663);
+      tunnelPavement.map = asphalt.map;
       const edge = new THREE.MeshBasicMaterial({ color: linear(0xe5e2d5) });
       const median = new THREE.MeshBasicMaterial({ color: linear(0xd6c491) });
       const breaks = Array.from({ length: 87 }, (_, i) => [-290 + i * 6.7, -287.25 + i * 6.7]);
@@ -430,13 +555,35 @@
       return new THREE.MeshBasicMaterial({ map: texture });
     }
 
-    function portal(x, downstream, name) {
+    function portal(x, downstream, name, stone) {
       const group = new THREE.Group();
       group.name = '隧道双洞门';
       group.position.set(x, portalY, center(x));
       group.rotation.y = -Math.PI / 2 - heading(x) + (downstream ? Math.PI : 0);
-      const face = concrete(0xb2b2a7), reveal = concrete(0x87908b);
+      const face = concrete(0xa1a297), reveal = concrete(0x828680);
       const signMaterial = portalSign(name);
+
+      // The wall spans both existing bores, leaving the lane and arch clear.
+      const facade = new THREE.Shape();
+      facade.moveTo(-9.7, -.58);
+      facade.lineTo(9.7, -.58);
+      facade.lineTo(9.7, 1.35);
+      facade.lineTo(7.65, 3.45);
+      facade.lineTo(7.65, 4.9);
+      facade.lineTo(-7.65, 4.9);
+      facade.lineTo(-7.65, 3.45);
+      facade.lineTo(-9.7, 1.35);
+      facade.closePath();
+      for (const cx of boreCenters) {
+        facade.holes.push(bore(new THREE.Path(), cx, boreRadius + .065, -.39, boreWall, boreRise + .065));
+      }
+      const masonry = new THREE.Mesh(new THREE.ExtrudeGeometry(facade,
+        { depth: .77, curveSegments: 24, bevelEnabled: false }), stone);
+      masonry.name = '双洞石砌端墙';
+      masonry.position.z = -.45;
+      const top = new THREE.Mesh(new THREE.BoxGeometry(15.48, .18, 1.02), face);
+      top.position.set(0, 4.92, -.04);
+      group.add(masonry, top);
       for (const cx of boreCenters) {
         const collar = bore(new THREE.Shape(), cx, 3.19, -.43, boreWall + .095, boreRise + .36);
         collar.holes.push(bore(new THREE.Path(), cx, boreRadius, -.055, boreWall, boreRise));
@@ -451,7 +598,7 @@
       }
       const walls = new THREE.Group();
       walls.name = '阶梯式翼墙';
-      const wallMaterial = concrete(0x9d9e93), coping = concrete(0xb2b2a5);
+      const wallMaterial = concrete(0x96978d), coping = concrete(0xa6a89d);
       const steps = [[.05, 1.65, 2.06], [1.65, 3.28, 1.49], [3.28, 4.93, .95], [4.93, 6.53, .62]];
       for (const side of [-1, 1]) {
         for (const [from, to, height] of steps) {
@@ -466,10 +613,45 @@
         }
       }
       group.add(walls);
+      group.traverse(mesh => {
+        if (!mesh.isMesh || mesh.material === signMaterial) return;
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+      });
       return group;
     }
 
-    return { height, landscape, forest, engineering, portal, trafficMatrix, trafficExtent: extent };
+    function portalStone(anisotropy) {
+      const stone = concrete(0xc3c6c2);
+      stone.map = texture('network-portal-stone.png', anisotropy, { repeat: [.415, .415] });
+      return stone;
+    }
+
+    function utilityRoom() {
+      const building = new THREE.Group();
+      const wall = concrete(0xc1bbab), roof = concrete(0x52616a);
+      const trim = concrete(0x87887f), glass = concrete(0x34474d);
+      function box(material, width, height, depth, x, y, z) {
+        const mesh = new THREE.Mesh(new THREE.BoxGeometry(width, height, depth), material);
+        mesh.position.set(x, y, z);
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+        building.add(mesh);
+      }
+      box(trim, 7.9, 2.3, 6.2, 0, -.92, 0);
+      box(wall, 7.55, 3.55, 5.85, 0, 1.84, 0);
+      box(roof, 8.05, .24, 6.33, 0, 3.68, 0);
+      box(trim, 1.01, 2.18, .09, -2.17, 1.22, 2.96);
+      for (const x of [-.62, 1.17, 2.45]) box(glass, .96, .76, .07, x, 2.34, 2.96);
+      for (const side of [-1, 1]) {
+        box(glass, .08, 1.45, 1.02, side * 3.8, 2.18, .93);
+        for (let y = 1.62; y < 2.85; y += .205) box(trim, .105, .075, 1.06, side * 3.84, y, .93);
+      }
+      return building;
+    }
+
+    return { height, landscape, daylightSky, forest, heading, lateralPoint, engineering, portal, portalStone, utilityRoom,
+      trafficMatrix, trafficExtent: extent };
   }
 
   window.TwinCorridor = { create };

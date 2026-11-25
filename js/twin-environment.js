@@ -113,6 +113,7 @@
     const background = twin.scene.background;
     const outdoor = twin.mode === 'macro' || twin.mode === 'road';
     if (outdoor) {
+      if (twin.routeSky && state.weather !== 'clear') twin.routeSky.visible = false;
       if (day && palette.sky != null) background.lerp(new THREE.Color(palette.sky), 0.48);
       if (sky != null) {
         background.lerp(new THREE.Color(sky), day ? 0.78 : 0.17);
