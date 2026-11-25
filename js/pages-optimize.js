@@ -10,7 +10,7 @@
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
   function summaryModal(title, text) {
-    U.modal(title, `<div class="note-box blue mb">以下为基于模拟数据生成的模拟分析摘要，可复制用于汇报。节能/效率为模拟工况估算，非承诺值，不下发控制指令。</div>
+    U.modal(title, `<div class="note-box blue mb">以下为根据当前数据生成的策略分析摘要，可复制用于汇报。节能/效率为设定工况下的估算，非承诺值，不下发控制指令。</div>
       <pre id="sum-text" style="white-space:pre-wrap;font-family:var(--font);font-size:12px;line-height:1.85;background:#f6f8fa;border:1px solid var(--line);border-radius:7px;padding:12px 14px;color:var(--text)">${U.esc(text)}</pre>`,
       `<button class="btn" onclick="UI.closeModal()">关闭</button><button class="btn primary" onclick="UI.copy(document.getElementById('sum-text').textContent)">${U.icon('copy', 14)} 复制摘要</button>`);
   }
@@ -23,8 +23,9 @@
 
   /* ================= 8.11 场景8｜风机运行优化 ================= */
   P.fan = {
-    title: '场景8 · 隧道风机运行优化', group: '运行优化', crumb: true,
+    title: '隧道风机运行优化', group: '运行优化', crumb: true,
     render(el, params) {
+      if (params?.case === 'yunling-fan') return window.FanInvestment.render(el, false, params);
       const fans = ['JF-01', 'JF-02', 'JF-03', 'JF-04'];
       const PER = 30 * 0.86;
       const COND = {
@@ -35,11 +36,12 @@
       };
       const HOURS = { dawn: { name: '凌晨', mult: 0.4 }, am: { name: '早高峰', mult: 1.3 }, day: { name: '日间', mult: 1.0 }, pm: { name: '晚高峰', mult: 1.4 }, night: { name: '夜间', mult: 0.6 } };
       let cond = 'normal', hour = 'day', strategy = 'sug';
-      el.innerHTML = U.pageHead('场景8 · 青岭隧道北洞风机运行优化',
-        '结合 CO/VI、交通量与风机功率，评估不同工况下的风机运行组合。本页为模拟策略评估，仅做当前与建议策略对比及节能估算，不提供真实风机启停控制。',
+      el.innerHTML = U.pageHead('青岭隧道北洞风机运行优化',
+        '结合 CO/VI、交通量与风机功率，评估不同工况下的风机运行组合。对比当前策略与建议策略的用电量，设备启停由现场控制系统执行。',
         `<button class="btn" onclick="UI.go('gis',{mode:'bim'})">${U.icon('cube', 14)} BIM定位</button>
+         <button class="btn" id="fan-investment" onclick="UI.go('fan',{case:'yunling-fan'})">风机改造投资测算</button>
          <button class="btn" id="fan-cons">${U.icon('check', 14)} 查看约束条件</button>
-         <button class="btn primary" id="fan-summary">${U.icon('copy', 14)} 生成策略分析摘要</button>`, U.demoBadge('模拟策略评估')) +
+         <button class="btn primary" id="fan-summary">${U.icon('copy', 14)} 生成策略分析摘要</button>`, U.demoBadge('策略评估')) +
         `<div class="card mb"><div class="card-b">
           <div class="filter-bar" style="margin:0">
             <span class="fld" style="font-weight:600;color:var(--navy-800)">运行工况</span>
@@ -59,7 +61,7 @@
               <div class="card-b" id="fan-af"></div></div>
           </div>
           <div class="grow">
-            <div class="card"><div class="card-h"><span class="card-t">环境与交通趋势</span><span class="sub" id="fan-trend-sub"></span><span class="spacer"></span>${U.demoBadge('模拟')}</div>
+            <div class="card"><div class="card-h"><span class="card-t">环境与交通趋势</span><span class="sub" id="fan-trend-sub"></span><span class="spacer"></span>${U.demoBadge()}</div>
               <div class="card-b"><div class="grid g-2">
                 <div><div class="sec-t" style="margin-top:0">CO 浓度</div><div id="fan-co"></div></div>
                 <div><div class="sec-t" style="margin-top:0">VI 能见度衰减</div><div id="fan-vi"></div></div>
@@ -68,7 +70,7 @@
               </div></div></div>
           </div>
           <div style="width:320px;flex:0 0 320px">
-            <div class="card"><div class="card-h"><span class="card-t">策略对比与节能估算</span><span class="spacer"></span>${U.demoBadge('模拟估算')}</div>
+            <div class="card"><div class="card-h"><span class="card-t">策略对比与节能估算</span><span class="spacer"></span>${U.demoBadge('模型估算')}</div>
               <div class="card-b" id="fan-strategy-panel"></div></div>
           </div>
         </div>
@@ -96,7 +98,7 @@
         el.querySelector('#fan-af').innerHTML = `<div class="evi" style="cursor:pointer" onclick="UI.openDevice('AF-01')"><div class="evi-t"><span class="tag plain">备用</span><span class="mono">AF-01</span></div><div class="src">${af.name} · 额定90kW · 洞口轴流，正常工况备用，应急/阻滞时按需投入</div></div>`;
       }
       function drawCharts(c) {
-        el.querySelector('#fan-trend-sub').textContent = c.b.name + ' · ' + HOURS[hour].name + '（模拟工况）';
+        el.querySelector('#fan-trend-sub').textContent = c.b.name + ' · ' + HOURS[hour].name + '（设定工况）';
         const seed = cond + hour, lb = D.hoursAxis(24, 1);
         Charts.line(el.querySelector('#fan-co'), { labels: lb, series: [{ name: 'CO浓度', color: '#2f7bff', data: D.series(seed + 'co', 24, c.co, c.co * 0.25, { daily: true, cycles: 2 }), unit: 'ppm' }], height: 150, yUnit: 'ppm', zero: true, area: true, legend: false, threshold: 150, thresholdLabel: '约束150ppm' });
         Charts.line(el.querySelector('#fan-vi'), { labels: lb, series: [{ name: 'VI衰减', color: '#8b5cf6', data: D.series(seed + 'vi', 24, c.vi, c.vi * 0.25, { daily: true, cycles: 2 }), unit: '%' }], height: 150, yUnit: '%', zero: true, area: true, legend: false });
@@ -122,11 +124,11 @@
           </div>
           <div class="sec-t">运行组合（${strategy === 'cur' ? '当前' : '建议'}）</div>
           <p class="small" style="color:var(--text-2);line-height:1.7">${combo(c.run)}</p>
-          <div class="sec-t">模拟节能估算</div>
+          <div class="sec-t">节能估算</div>
           <div class="concl"><h4 style="font-size:22px;color:${c.saving > 0 ? '#15803d' : 'var(--navy-800)'}">${c.saving > 0 ? '↓ ' + c.saving + '%' : '0%（安全优先）'}</h4>
-            <p>${c.saving > 0 ? '相对当前策略，建议策略减少 ' + (c.runCur - c.runSug) + ' 台运行风机，模拟工况下功率由 ' + c.powCur + 'kW 降至 ' + c.powSug + 'kW。' : '当前工况通风需求高或应急锁定，不建议减少运行风机，节能空间为 0。'}</p></div>
+            <p>${c.saving > 0 ? '相对当前策略，建议策略减少 ' + (c.runCur - c.runSug) + ' 台运行风机，设定工况下功率由 ' + c.powCur + 'kW 降至 ' + c.powSug + 'kW。' : '当前工况通风需求高或应急锁定，不建议减少运行风机，节能空间为 0。'}</p></div>
           <div class="score-bar"><i style="width:${c.saving}%;background:linear-gradient(90deg,#16a34a,#00b8d9)"></i></div>
-          <div class="note-box mt">估算假设：工况=${c.b.name}，时段=${HOURS[hour].name}，CO≈${c.co}ppm、VI≈${c.vi}%、交通量≈${c.traffic}辆/h，单台运行功率按额定86%计。结果为模拟工况估算，受交通/天气/季节影响，非固定承诺节能值。</div>
+          <div class="note-box mt">估算假设：工况=${c.b.name}，时段=${HOURS[hour].name}，CO≈${c.co}ppm、VI≈${c.vi}%、交通量≈${c.traffic}辆/h，单台运行功率按额定86%计。结果为设定工况下的估算，受交通/天气/季节影响，非固定承诺节能值。</div>
           ${c.b.lock ? '<div class="note-box mt" style="color:#b91c1c;background:#fef2f2;border-color:#f3c0c0">应急工况：风机由原控制系统按应急预案执行，本系统仅展示，不生成优化指令。</div>' : ''}`;
       }
       const CONS = [
@@ -152,21 +154,21 @@
       el.querySelector('#fan-summary').addEventListener('click', () => {
         const c = calc();
         summaryModal('风机运行优化 · 策略分析摘要', `【场景】青岭隧道北洞射流风机 JF-01~04（额定30kW×4）
-【工况】${c.b.name} · 时段 ${HOURS[hour].name}（模拟工况）
+【工况】${c.b.name} · 时段 ${HOURS[hour].name}（设定工况）
 【环境参数】CO≈${c.co}ppm，VI≈${c.vi}%，交通量≈${c.traffic}辆/h
 【当前策略】${c.runCur}台运行，功率${c.powCur}kW，组合 ${fans.slice(0, c.runCur).join('/')}
 【建议策略】${c.runSug}台运行，功率${c.powSug}kW，组合 ${fans.slice(0, c.runSug).join('/')}${c.runSug < 4 ? '，备用 ' + fans.slice(c.runSug).join('/') : ''}
-【模拟节能估算】${c.saving}%（功率差 ${(c.powCur - c.powSug).toFixed(1)}kW）
-【估算假设】单台运行功率按额定86%计；节能受交通量/天气/季节影响，为模拟工况估算，非固定承诺值。
+【节能估算】${c.saving}%（功率差 ${(c.powCur - c.powSug).toFixed(1)}kW）
+【估算假设】单台运行功率按额定86%计；节能受交通量/天气/季节影响，为设定工况下的估算，非固定承诺值。
 【安全约束】CO≤150ppm、VI≤规范限值、风速≤10m/s、检修道作业配合交通管制、应急优先、风机轮换均衡。
-【边界说明】本页为模拟策略评估，仅做对比与估算，不提供真实风机启停控制；应急工况由原控制系统按预案执行。`);
+【边界说明】本页为策略评估，仅做对比与估算，设备启停由现场控制系统执行；应急工况由原控制系统按预案执行。`);
       });
     }
   };
 
   /* ================= 8.12 场景9｜照明调光优化 ================= */
   P.light = {
-    title: '场景9 · 隧道照明调光优化', group: '运行优化', crumb: true,
+    title: '隧道照明调光优化', group: '运行优化', crumb: true,
     renderEconomicCase(el, verification, params) {
       // Standalone Yunling lighting fixture. The main tunnel's power chart uses relative units.
       const sunny = params.weather !== 'cloud', busy = params.flow !== 'low';
@@ -190,32 +192,32 @@
       const jump = dest => U.go(dest, {case:'yunling', weather:el.querySelector('#yl-weather').value, flow:el.querySelector('#yl-flow').value});
       const row = (label, m, v) => `<tr><th scope="row">${label}</th><td>${m}</td><td>${v}</td></tr>`;
       el.innerHTML = U.pageHead(verification ? '照明成效核验 · 分区智能调光' : '照明策略测算 · 分区智能调光',
-        '云岭隧道 K12 · 路维智策独立模拟样例。按同一工况、照明范围和 24 小时统计周期核算。表计读数为模拟样本。',
+        '云岭隧道 K12 · 路维智策专项测算。按同一工况、照明范围和 24 小时统计周期核算。表计核验采用内置参考读数。',
         `<button class="btn" onclick="UI.go('${route}')">${verification ? '返回成效评价' : '返回青岭照明策略'}</button>
-         <button class="btn primary" id="yl-switch">${verification ? '查看同方案策略测算' : '查看同方案表计核验'}</button>`, U.demoBadge('独立模拟案例')) +
+         <button class="btn primary" id="yl-switch">${verification ? '查看同方案策略测算' : '查看同方案表计核验'}</button>`, U.demoBadge('专项分析')) +
         `<div class="card mb"><div class="card-b filter-bar">
           <label class="fld">天气 <select class="sel" id="yl-weather"><option value="sun" ${sunny ? 'selected' : ''}>晴天</option><option value="cloud" ${sunny ? '' : 'selected'}>阴天</option></select></label>
           <label class="fld">车流 <select class="sel" id="yl-flow"><option value="high" ${busy ? 'selected' : ''}>峰时</option><option value="low" ${busy ? '' : 'selected'}>低流量</option></select></label>
           <span class="small muted">洞外亮度 ${sunny ? '4,800' : '1,650'} cd/m² · 交通量 ${busy ? '980' : '280'} 辆/小时</span>
         </div></div>
         <div class="grid g-4 mb">${U.kpi('校正基线电量', num(base), '同工况 · 日电量', '#2f7bff', null, 'bulb', 'kWh')}
-          ${U.kpi(verification ? '模拟分项表计' : '模型预计用电', num(verification ? reference : predicted), '照明回路 · 日电量', '#00a5bf', null, 'bulb', 'kWh')}
+          ${U.kpi(verification ? '分项参考表计' : '模型预计用电', num(verification ? reference : predicted), '照明回路 · 日电量', '#00a5bf', null, 'bulb', 'kWh')}
           ${U.kpi(verification ? '按表计折算年收益' : '模型预计年收益', num(verification ? meter.annualRevenue : model.annualRevenue), '年等效运行 ' + days + ' 天', '#15803d', null, 'cost', '元')}
           ${U.kpi(verification ? '表计口径回收期' : '模型预计回收期', (verification ? meter.years : model.years).toFixed(2), '静态投资回收期', '#8054b2', null, 'cost', '年')}</div>
         <div class="grid g-2"><section class="card"><div class="card-h"><span class="card-t">${verification ? '模型预计与表计核验' : '分区负荷与改造投资'}</span></div><div class="card-b">
-          ${verification ? `<table class="tbl"><thead><tr><th>核算项目</th><th>模型预计</th><th>模拟表计</th></tr></thead><tbody>
+          ${verification ? `<table class="tbl"><thead><tr><th>核算项目</th><th>模型预计</th><th>参考表计</th></tr></thead><tbody>
           ${row('日用电量（kWh）', num(predicted), num(reference))}
           ${row('日节电量（kWh）', num(model.daily), num(meter.daily))}
           ${row('折算年节电量（kWh）', num(model.annualEnergy), num(meter.annualEnergy))}
           ${row('折算年收益（元）', num(model.annualRevenue), num(meter.annualRevenue))}
           ${row('静态回收期（年）', model.years.toFixed(2), meter.years.toFixed(2))}</tbody></table>`
-          : `<table class="tbl"><thead><tr><th>照明分区</th><th>用电权重</th><th>模拟负荷下限</th><th>策略负荷</th></tr></thead><tbody>
+          : `<table class="tbl"><thead><tr><th>照明分区</th><th>用电权重</th><th>设定负荷下限</th><th>策略负荷</th></tr></thead><tbody>
           ${['入口段','过渡段','中间段'].map((name,i) => `<tr><th scope="row">${name}</th><td>${weights[i] * 100}%</td><td>${Math.round(floors[i]*100)}%</td><td>${targets[i]}%</td></tr>`).join('')}</tbody></table>
-          <p class="small muted mt">预计用电 = 校正基线 × 各分区加权负荷。示例下限用于模型演算，实际调光需复核亮度和均匀度，应急照明单独运行。</p>`}
+          <p class="small muted mt">预计用电 = 校正基线 × 各分区加权负荷。设定下限用于模型演算，实际调光需复核亮度和均匀度，应急照明单独运行。</p>`}
           <div class="note-box blue mt">改造投入 ${num(capital)} 元 · 电价 ${price} 元/kWh · 年等效运行 ${days} 天。全年收益按当前样本日折算。</div>
         </div></section><section class="card"><div class="card-h"><span class="card-t">${verification ? '节电量与收益核算' : '节电收益测算'}</span></div><div class="card-b">
-          <div class="concl"><h4>${verification ? '模拟表计' : '策略模型'}每日节电 ${num(verification ? meter.daily : model.daily)} kWh</h4>
-          <p>工况校正基线 ${num(base)} − ${verification ? '模拟表计' : '模型预计'}用电 ${num(verification ? reference : predicted)} = ${num(verification ? meter.daily : model.daily)} kWh。</p></div>
+          <div class="concl"><h4>${verification ? '参考表计' : '策略模型'}每日节电 ${num(verification ? meter.daily : model.daily)} kWh</h4>
+          <p>工况校正基线 ${num(base)} − ${verification ? '参考表计' : '模型预计'}用电 ${num(verification ? reference : predicted)} = ${num(verification ? meter.daily : model.daily)} kWh。</p></div>
           <div class="kv mt"><span class="k">折算年收益</span><span class="v">${num(verification ? meter.daily : model.daily)} × ${days} × ${price} = <b>${num(verification ? meter.annualRevenue : model.annualRevenue)} 元</b></span>
           <span class="k">静态回收期</span><span class="v">${num(capital)} ÷ ${num(verification ? meter.annualRevenue : model.annualRevenue)} ≈ <b>${(verification ? meter.years : model.years).toFixed(2)} 年</b></span></div>
           <p class="small muted mt">${verification ? '多项措施同期实施时，若缺少各措施的独立分项表计，只列组合收益。' : '校正基线按晴天 / 阴天、峰时 / 低流量取同类工况。静态回收期只计节电收益。'}</p>
@@ -243,32 +245,32 @@
         const recP = ZONES.reduce((a, z, i) => a + r[i] * z.w, 0);
         return { curP: +curP.toFixed(0), recP: +recP.toFixed(0), saving: +((curP - recP) / curP * 100).toFixed(1) };
       }
-      el.innerHTML = U.pageHead('场景9 · 青岭隧道照明调光优化',
-        '按入口段/过渡段/中间段分区，结合洞外亮度与交通量评估调光策略。本页为模拟策略评估，遵循《公路隧道照明设计细则》，不提供“立即下发调光”等远程控制；方案仅可保存为本地。',
+      el.innerHTML = U.pageHead('青岭隧道照明调光优化',
+        '按入口段/过渡段/中间段分区，结合洞外亮度与交通量评估调光策略。本页为策略评估，遵循《公路隧道照明设计细则》，方案保存在当前浏览器，供现场复核。',
         `<button class="btn" onclick="UI.go('gis',{mode:'bim'})">${U.icon('cube', 14)} BIM定位</button>
          <button class="btn" onclick="UI.go('light',{case:'yunling'})">照明改造投资测算</button>
          <button class="btn" id="lt-explain">${U.icon('diag', 14)} 策略说明</button>
-         <button class="btn primary" id="lt-save">${U.icon('check', 14)} 保存方案</button>`, U.demoBadge('模拟策略评估')) +
+         <button class="btn primary" id="lt-save">${U.icon('check', 14)} 保存方案</button>`, U.demoBadge('策略评估')) +
         `<div class="card mb"><div class="card-b">
           <div class="filter-bar" style="margin:0;align-items:center">
             <span class="fld" style="font-weight:600;color:var(--navy-800)">策略对比</span>
             <span class="btn-group" id="lt-strategy"><button class="seg" data-v="cur">当前调光</button><button class="seg on" data-v="rec">建议调光</button></span>
             <span style="width:1px;height:24px;background:var(--line);margin:0 6px"></span>
-            <label class="fld" style="min-width:230px">模拟洞外亮度 L20 <input type="range" id="lt-l20" min="1000" max="6000" step="100" value="${L20}" style="flex:1"> <b class="mono" id="lt-l20-v">${L20}</b> cd/m²</label>
-            <label class="fld" style="min-width:210px">模拟交通量 <input type="range" id="lt-tr" min="200" max="2000" step="50" value="${traffic}" style="flex:1"> <b class="mono" id="lt-tr-v">${traffic}</b> 辆/h</label>
+            <label class="fld" style="min-width:230px">设定洞外亮度 L20 <input type="range" id="lt-l20" min="1000" max="6000" step="100" value="${L20}" style="flex:1"> <b class="mono" id="lt-l20-v">${L20}</b> cd/m²</label>
+            <label class="fld" style="min-width:210px">设定交通量 <input type="range" id="lt-tr" min="200" max="2000" step="50" value="${traffic}" style="flex:1"> <b class="mono" id="lt-tr-v">${traffic}</b> 辆/h</label>
             <span class="spacer" style="flex:1"></span>
             <span id="lt-saved-badge">${saved ? '<span class="tag ok">已保存方案</span>' : ''}</span>
           </div>
         </div></div>
         <div class="flex">
           <div style="width:300px;flex:0 0 300px">
-            <div class="card"><div class="card-h"><span class="card-t">隧道照明分区示意</span><span class="spacer"></span>${U.demoBadge()}</div>
+            <div class="card"><div class="card-h"><span class="card-t">隧道照明分区</span><span class="spacer"></span>${U.demoBadge()}</div>
               <div class="card-b" id="lt-zones"></div></div>
             <div class="card mt"><div class="card-h"><span class="card-t">分区详情</span></div>
               <div class="card-b" id="lt-zone-detail"></div></div>
           </div>
           <div class="grow">
-            <div class="card"><div class="card-h"><span class="card-t">环境与交通趋势</span><span class="sub">模拟工况 · 随滑杆联动</span><span class="spacer"></span>${U.demoBadge('模拟')}</div>
+            <div class="card"><div class="card-h"><span class="card-t">环境与交通趋势</span><span class="sub">设定工况 · 随滑杆联动</span><span class="spacer"></span>${U.demoBadge()}</div>
               <div class="card-b"><div class="grid g-2">
                 <div><div class="sec-t" style="margin-top:0">洞外亮度 L20</div><div id="lt-brt"></div></div>
                 <div><div class="sec-t" style="margin-top:0">交通量</div><div id="lt-trc"></div></div>
@@ -276,7 +278,7 @@
               <div class="sec-t">照明功率对比（当前 vs 建议）</div><div id="lt-pw"></div></div></div>
           </div>
           <div style="width:320px;flex:0 0 320px">
-            <div class="card"><div class="card-h"><span class="card-t">调光策略与节能估算</span><span class="spacer"></span>${U.demoBadge('模拟估算')}</div>
+            <div class="card"><div class="card-h"><span class="card-t">调光策略与节能估算</span><span class="spacer"></span>${U.demoBadge('模型估算')}</div>
               <div class="card-b" id="lt-panel"></div></div>
           </div>
         </div>
@@ -330,10 +332,10 @@
           ${ZONES.map((z, i) => `<div class="flex ai-center" style="padding:3px 0;font-size:12px"><span style="width:64px;color:var(--text-2)">${z.id}</span>
             <span style="flex:1;height:8px;background:var(--gray-bg);border-radius:4px;overflow:hidden"><i style="display:block;height:100%;width:${r[i]}%;background:linear-gradient(90deg,#f59e0b,#ffd28a)"></i></span>
             <b style="width:74px;text-align:right" class="mono small">${CUR[i]}%→${r[i]}%</b></div>`).join('')}
-          <div class="sec-t">模拟节能估算</div>
-          <div class="concl"><h4 style="font-size:22px;color:#15803d">↓ ${en.saving}%</h4><p>相对当前调光，建议策略在保障入口/出口亮度适应与中间段最低照度前提下，模拟工况下照明功率由 ${en.curP} 降至 ${en.recP}（相对值）。</p></div>
+          <div class="sec-t">节能估算</div>
+          <div class="concl"><h4 style="font-size:22px;color:#15803d">↓ ${en.saving}%</h4><p>相对当前调光，建议策略在保障入口/出口亮度适应与中间段最低照度前提下，设定工况下照明功率由 ${en.curP} 降至 ${en.recP}（相对值）。</p></div>
           <div class="score-bar"><i style="width:${en.saving}%;background:linear-gradient(90deg,#16a34a,#f59e0b)"></i></div>
-          <div class="note-box mt">估算假设：洞外亮度 L20=${L20}cd/m²，交通量=${traffic}辆/h；功率为分区相对值，非实测电量。节能受交通/天气/季节影响，为模拟估算，非承诺值。应急照明不参与调光。</div>
+          <div class="note-box mt">估算假设：洞外亮度 L20=${L20}cd/m²，交通量=${traffic}辆/h；功率为分区相对值，非实测电量。节能受交通/天气/季节影响，为模型估算，非承诺值。应急照明不参与调光。</div>
           <div class="divider"></div>
           <div class="flex wrap">
             <button class="btn sm" id="lt-restore" ${saved ? '' : 'disabled'}>${U.icon('reset', 13)} 恢复已存方案</button>
@@ -356,7 +358,7 @@
         ['调光范围限制', '调光等级限制在灯具允许范围（30%—100%），保护驱动电源', '灯具规格']
       ];
       el.querySelector('#lt-cons').innerHTML = `<div class="grid g-3">${CONS.map(([t, x, s]) => `<div class="evi"><div class="evi-t small">${U.icon('check', 13)} ${t}</div><div class="evi-d small">${x}</div><div class="src">依据：${s}</div></div>`).join('')}</div>
-        <div class="note-box mt">本原型遵循照明设计细则进行模拟评估，不提供远程调光下发。保存的方案仅写入浏览器本地（localStorage），用于汇报，不连接真实控制系统。</div>`;
+        <div class="note-box mt">调光方案依据照明设计细则评估，保存在当前浏览器。设备调光按现场流程执行。</div>`;
       function drawAll() { const r = rec(), en = energy(r); drawZones(r); drawZoneDetail(r); drawCharts(r, en); drawPanel(r, en); }
       drawAll();
       segBind(el, '#lt-strategy', v => { strategy = v; drawAll(); });
@@ -373,7 +375,7 @@
       el.querySelector('#lt-explain').addEventListener('click', () => {
         const r = rec(), en = energy(r);
         U.modal('照明调光策略说明', `
-          <div class="note-box blue mb">本策略为模拟评估，依据《公路隧道照明设计细则》JTG/T D70/2-01—2014 的亮度适应原则，结合洞外亮度与交通量估算分区调光等级。不下发任何真实控制指令。</div>
+          <div class="note-box blue mb">本策略为方案评估，依据《公路隧道照明设计细则》JTG/T D70/2-01—2014 的亮度适应原则，结合洞外亮度与交通量估算分区调光等级。设备参数仅用于策略试算。</div>
           <div class="sec-t">调光模型</div>
           <div class="kv"><span class="k">入口段1</span><span class="v">60% + L20/6000×40%（随洞外亮度，60—100%）</span>
           <span class="k">入口段2</span><span class="v">入口段1 × 0.85（逐级过渡）</span>
@@ -381,7 +383,7 @@
           <span class="k">中间段</span><span class="v">交通量&lt;600→35%；&lt;1200→45%；否则50%（不低于规范最低）</span>
           <span class="k">出口段</span><span class="v">70% + L20/6000×15%（保障驶出适应）</span></div>
           <div class="sec-t">当前工况</div>
-          <p class="small" style="color:var(--text-2);line-height:1.8">L20=${L20}cd/m²，交通量=${traffic}辆/h；建议节能估算 ${en.saving}%（相对功率 ${en.curP}→${en.recP}）。功率为分区相对值，非实测电量；节能受交通/天气/季节影响，为模拟估算。</p>
+          <p class="small" style="color:var(--text-2);line-height:1.8">L20=${L20}cd/m²，交通量=${traffic}辆/h；建议节能估算 ${en.saving}%（相对功率 ${en.curP}→${en.recP}）。功率为分区相对值，非实测电量；节能受交通/天气/季节影响，为模型估算。</p>
           <div class="note-box mt">应急照明与疏散指示独立回路，不参与调光。调光等级限制在灯具允许范围。保存方案仅写入本地 localStorage。</div>`,
           `<button class="btn" onclick="UI.closeModal()">关闭</button>`);
       });
@@ -451,19 +453,21 @@
     return { packages, trips, mileage, dur, perTrip: trips ? +(tasks.length / trips).toFixed(2) : 0, count: tasks.length };
   }
   P.tasks = {
-    title: '场景10 · 现场作业统筹', group: '现场作业统筹', crumb: true,
+    title: '现场作业统筹', group: '现场作业统筹', crumb: true,
     render(el, params) {
       const focusTask = D.tasks.find(t => t.id === params.id);
       let selected = focusTask ? [focusTask.id] : D.tasks.map(t => t.id);
       let mode = 'A', resourceOn = true;
       const selectedMileage = () => +D.tasks.filter(t => selected.includes(t.id)).reduce((sum, t) => sum + 2 * t.km, 0).toFixed(1);
-      el.innerHTML = U.pageHead('场景10 · 机电运维现场作业统筹',
-        '将检测周期、诊断异常建议与计划检查产生的现场任务，按地理、资质、仪器、作业窗口与交通管制约束组合为任务包。本页为模拟组合建议，供调度参考，不自动派单、不替代审批。',
+      el.innerHTML = U.pageHead('机电运维现场作业统筹',
+        '将检测周期、诊断异常建议与计划检查产生的现场任务，按地理、资质、仪器、作业窗口与交通管制约束组合为任务包。本页为作业组合建议，供调度参考，不自动派单、不替代审批。',
         `<button class="btn" onclick="UI.go('camera-renewal',{from:'tasks'})">同杆摄像机修换方案比选</button>
          <button class="btn" id="tk-basis">${U.icon('diag', 14)} 查看组合依据</button>
          <button class="btn" id="tk-reset">${U.icon('reset', 14)} 重置选择</button>
-         <button class="btn primary" id="tk-summary">${U.icon('copy', 14)} 生成统筹摘要</button>`, U.demoBadge('模拟组合建议')) +
-        `<div class="card mb"><div class="card-b">
+         <button class="btn primary" id="tk-summary">${U.icon('copy', 14)} 生成统筹摘要</button>`, U.demoBadge('作业组合建议')) +
+        `<div class="btn-group mb" aria-label="现场作业视图"><button class="seg on" data-task-view="packages" aria-pressed="true">任务组合</button><button class="seg" data-task-view="schedule" aria-pressed="false">班组与仪器排程</button></div>
+        <section id="tk-scheduling" hidden></section>
+        <div id="tk-pack-view"><div class="card mb"><div class="card-b">
           <div class="filter-bar" style="margin:0;align-items:center">
             <span class="fld" style="font-weight:600;color:var(--navy-800)">组合方案</span>
             <span class="btn-group" id="tk-mode"><button class="seg on" data-v="A">方案A · 地理就近</button><button class="seg" data-v="B">方案B · 专业资质</button></span>
@@ -485,14 +489,26 @@
               <div class="card-b tight" id="tk-list"></div></div>
           </div>
           <div style="width:340px;flex:0 0 340px">
-            <div class="card"><div class="card-h"><span class="card-t">推荐任务包</span><span class="sub" id="tk-mode-sub"></span><span class="spacer"></span>${U.demoBadge('模拟')}</div>
+            <div class="card"><div class="card-h"><span class="card-t">推荐任务包</span><span class="sub" id="tk-mode-sub"></span><span class="spacer"></span>${U.demoBadge()}</div>
               <div class="card-b" id="tk-packages" style="max-height:420px;overflow-y:auto"></div></div>
             <div class="card mt"><div class="card-h"><span class="card-t">方案对比与效率</span></div>
               <div class="card-b" id="tk-compare"></div></div>
           </div>
         </div>
         <div class="card mt"><div class="card-h"><span class="card-t">组合约束条件</span><span class="sub">任务合并不是仅按距离，需同时满足下列约束</span><span class="spacer"></span>${U.demoBadge()}</div>
-          <div class="card-b" id="tk-cons"></div></div>`;
+          <div class="card-b" id="tk-cons"></div></div></div>`;
+      const scheduling = window.TaskScheduling.mount(el.querySelector('#tk-scheduling'), D, () => selected);
+      el.querySelectorAll('[data-task-view]').forEach(button => button.addEventListener('click', () => {
+        const showSchedule = button.dataset.taskView === 'schedule';
+        el.querySelector('#tk-scheduling').hidden = !showSchedule;
+        el.querySelector('#tk-pack-view').hidden = showSchedule;
+        el.querySelectorAll('[data-task-view]').forEach(b => {
+          b.classList.toggle('on', b === button);
+          b.setAttribute('aria-pressed', String(b === button));
+        });
+        el.querySelectorAll('#tk-summary,#tk-basis').forEach(b => { b.style.display = showSchedule ? 'none' : ''; });
+        if (showSchedule) scheduling();
+      }));
       function drawMap() {
         taskMap(el.querySelector('#tk-map'), D.tasks, selected, t => { toggle(t.id); openReq(t); });
       }
@@ -505,7 +521,7 @@
       function drawList() {
         el.querySelector('#tk-list').innerHTML = `<table class="tbl"><thead><tr><th style="width:34px"></th><th>任务</th><th>位置</th><th>类型</th><th>耗时</th><th>资质/仪器</th><th>窗口</th><th>来源</th></tr></thead><tbody>
           ${D.tasks.map((t, i) => `<tr data-tk="${t.id}" class="${selected.includes(t.id) ? '' : 'muted'}" style="cursor:pointer">
-            <td><span class="switch ${selected.includes(t.id) ? 'on' : ''}" data-sw="${t.id}" style="transform:scale(.85)"></span></td>
+            <td><button type="button" class="switch ${selected.includes(t.id) ? 'on' : ''}" data-sw="${t.id}" aria-label="将 ${t.id} 纳入组合" aria-pressed="${selected.includes(t.id)}" style="border:0;vertical-align:middle;transform:scale(.85)"></button></td>
             <td><span class="code">${t.id}</span><br><span class="small muted">${t.asset}</span></td>
             <td class="small">${t.tunnel}<br><span class="muted">${D.kmText(t.km)}</span></td>
             <td class="small">${t.type}</td>
@@ -583,7 +599,7 @@
               <span class="k">往返里程</span><span class="v">${p.mileage} km</span>
               <span class="k">交通管制</span><span class="v">${p.traffic}</span>
             </div>
-            ${p.warnings.length ? `<div class="note-box mt" style="padding:5px 9px">${U.icon('warn', 12)} ${p.warnings.join('；')}</div>` : (resourceOn ? '<div class="src" style="color:#15803d">✓ 资质/仪器/窗口约束满足（模拟校验）</div>' : '<div class="src muted">资源约束校验已关闭</div>')}
+            ${p.warnings.length ? `<div class="note-box mt" style="padding:5px 9px">${U.icon('warn', 12)} ${p.warnings.join('；')}</div>` : (resourceOn ? '<div class="src" style="color:#15803d">✓ 资质/仪器/窗口约束满足（规则校验）</div>' : '<div class="src muted">资源约束校验已关闭</div>')}
           </div>`).join('');
         return r;
       }
@@ -599,7 +615,7 @@
             <tr><td>总作业耗时</td><td class="num">${A.dur}h</td><td class="num">${A.dur}h</td><td class="num">${B.dur}h</td></tr>
           </tbody></table>
           <div class="concl mt"><h4>方案A 里程节省 ${saveM}%</h4><p>相对逐任务出车（${A.count}次/${baseMileage}km），方案A按地理就近合并为 ${A.trips} 个任务包，往返里程 ${A.mileage}km，单次任务量提升至 ${A.perTrip}。方案B按专业资质合并为 ${B.trips} 包，便于专业班组集中作业。</p></div>
-          <div class="note-box mt">效率指标为模拟测算，口径与成效评价页一致（单位任务行驶里程、单次出车任务量）。组合建议供调度参考，不自动派单。</div>
+          <div class="note-box mt">效率指标为方案测算，口径与成效评价页一致（单位任务行驶里程、单次出车任务量）。组合建议供调度参考，不自动派单。</div>
           <button class="btn sm mt" onclick="UI.go('kpi')">${U.icon('cost', 13)} 查看成效指标 ›</button>`;
       }
       const CONS = [
@@ -611,7 +627,7 @@
         ['耗时均衡', '单包总耗时控制在作业窗口内，避免超窗']
       ];
       el.querySelector('#tk-cons').innerHTML = `<div class="grid g-3">${CONS.map(([t, x]) => `<div class="evi"><div class="evi-t small">${U.icon('check', 13)} ${t}</div><div class="evi-d small">${x}</div></div>`).join('')}</div>`;
-      function drawAll() { drawMap(); drawSource(); drawList(); drawPackages(); drawCompare(); }
+      function drawAll() { drawMap(); drawSource(); drawList(); drawPackages(); drawCompare(); if (!el.querySelector('#tk-scheduling').hidden) scheduling(); }
       drawAll();
       if (focusTask) openReq(focusTask);
       segBind(el, '#tk-mode', v => { mode = v; drawPackages(); drawCompare(); });
@@ -641,7 +657,7 @@
 【任务包明细】
 ${r.packages.map((p, i) => '  包' + (i + 1) + ' ' + p.key + '：' + p.tasks.map(t => t.id).join('/') + ' → ' + (p.team ? p.team.name : '待调度') + '，' + p.mileage + 'km' + (p.warnings.length ? '（' + p.warnings.join('；') + '）' : '')).join('\n')}
 【组合约束】专业兼容性/地理就近/作业窗口/交通管制/资质仪器/耗时均衡。
-【边界说明】本页为模拟组合建议，供调度参考，不自动派单、不替代审批；效率为模拟测算。`);
+【边界说明】本页为作业组合建议，供调度参考，不自动派单、不替代审批；效率为方案测算。`);
       });
     }
   };

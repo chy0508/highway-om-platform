@@ -108,7 +108,12 @@
     if (window.Twin) Twin.destroyAll();
     content.innerHTML = `<div class="crumb"><a href="#/dashboard">首页</a><span class="sep">/</span>${p.crumb ? `<a>${p.group || p.title}</a><span class="sep">/</span>` : ''}<span class="cur">${p.title}</span></div><div id="page-body" class="fade-in"></div>`;
     const body = document.getElementById('page-body');
-    try { p.render(body, current.params); }
+    try {
+      p.render(body, current.params);
+      const viewed = D.events.find(e => D.isOpenMajor(e) && e.page === current.page &&
+        (e.id === current.params.id || (!current.params.id && ['scene-camera','scene-lighting'].includes(current.page))));
+      if (viewed) { markRead('event', viewed.id); refreshNoticeCounts(); }
+    }
     catch (err) { console.error(err); body.innerHTML = `<div class="card"><div class="card-b"><div class="empty">页面渲染异常：${err.message}</div></div></div>`; }
     document.title = p.title + ' · 高速公路机电智能运维平台';
     syncRobot();
@@ -116,6 +121,40 @@
 
   /* ---------- 导航渲染 ---------- */
   let role = '运维管理人员';
+  const readPrefix = 'highway-om.notice-read.';
+  const readInSession = new Set();
+  function isNoticeRead(kind, id) {
+    const key = readPrefix + kind + '.' + id;
+    if (readInSession.has(key)) return true;
+    try { return localStorage.getItem(key) === '1'; } catch { return false; }
+  }
+  function markRead(kind, id) {
+    if (isNoticeRead(kind, id)) return;
+    const key = readPrefix + kind + '.' + id;
+    readInSession.add(key);
+    try { localStorage.setItem(key, '1'); } catch { /* 当前会话仍可记住已读状态 */ }
+  }
+  function refreshNoticeCounts() {
+    const active = D.alarms.filter(a => a.status === 'active');
+    const unread = active.filter(a => !isNoticeRead('alarm', a.id)).length;
+    const bell = document.getElementById('alarm-btn');
+    bell.title = '当前告警 ' + active.length + ' 条，未读 ' + unread + ' 条';
+    bell.setAttribute('aria-label', bell.title);
+    const count = document.getElementById('alarm-cnt');
+    count.textContent = unread || '';
+    count.hidden = !unread;
+    const badge = document.querySelector('[data-grp="diagnosis"] .nav-badge');
+    if (badge) {
+      const n = D.events.filter(e => D.isOpenMajor(e) && !isNoticeRead('event', e.id)).length;
+      badge.textContent = n || '';
+      badge.hidden = !n;
+      badge.title = '查看重大事件，' + n + ' 起未读';
+      badge.setAttribute('aria-label', badge.title);
+    }
+    document.querySelectorAll('[data-event-read]').forEach(row => {
+      row.textContent = isNoticeRead('event', row.dataset.eventRead) ? ' · 已读' : ' · 未读';
+    });
+  }
   function renderNav() {
     const nav = document.getElementById('nav');
     const allow = ROLE_MENUS[role];
@@ -127,7 +166,7 @@
       const activeGroup = childKeys.includes(current.page);
       if (item.children) {
         const open = activeGroup;
-        html += `<div class="nav-group"><div class="nav-item ${activeGroup ? 'active' : ''} ${open ? 'open' : ''}" data-grp="${item.key}">${icon(item.icon)}<span>${item.name}</span>${item.badge ? `<span class="nav-badge">${D.events.filter(D.isOpenMajor).length}</span>` : ''}<span class="arrow">▶</span></div><div class="nav-sub ${open ? 'open' : ''}">`;
+        html += `<div class="nav-group"><div class="nav-item ${activeGroup ? 'active' : ''} ${open ? 'open' : ''}" data-grp="${item.key}">${icon(item.icon)}<span>${item.name}</span>${item.badge ? `<button class="nav-badge" type="button" hidden></button>` : ''}<span class="arrow">▶</span></div><div class="nav-sub ${open ? 'open' : ''}">`;
         item.children.forEach(c => {
           const k = c.key || item.key;
           if (allow && !allow.includes(k) && !allow.includes(item.key)) return;
@@ -140,6 +179,12 @@
       }
     });
     nav.innerHTML = html;
+    refreshNoticeCounts();
+    nav.querySelector('.nav-badge')?.addEventListener('click', ev => {
+      ev.stopPropagation();
+      if (current.page === 'diagnosis' && current.params.level === '严重' && current.params.status === 'open') render();
+      else go('diagnosis', {level:'严重', status:'open'});
+    });
     nav.querySelectorAll('[data-page]').forEach(el => {
       el.addEventListener('click', () => go(el.dataset.page, JSON.parse(el.dataset.params || '{}')));
     });
@@ -167,7 +212,7 @@
   function openDrawer(title, html, wide) {
     const dr = document.getElementById('drawer');
     dr.classList.toggle('wide', !!wide);
-    dr.innerHTML = `<div class="drawer-h"><div class="drawer-t">${title}</div><span class="badge-demo">模拟数据</span><button class="drawer-x" onclick="UI.closeDrawer()">✕</button></div><div class="drawer-b dark-scroll">${html}</div>`;
+    dr.innerHTML = `<div class="drawer-h"><div class="drawer-t">${title}</div><button class="drawer-x" onclick="UI.closeDrawer()">✕</button></div><div class="drawer-b dark-scroll">${html}</div>`;
     dr.classList.add('show');
     document.getElementById('drawer-mask').classList.add('show');
     return dr.querySelector('.drawer-b');
@@ -211,7 +256,7 @@
     const c = D.CATS[cat];
     return `<span class="tag" style="background:${c.color}18;color:${c.color}">${c.name}</span>`;
   }
-  function demoBadge(txt, cls) { return `<span class="badge-demo ${cls || ''}">${txt || '模拟数据'}</span>`; }
+  function demoBadge(txt, cls) { return txt ? `<span class="badge-demo ${cls || ''}">${txt}</span>` : ''; }
   function pageHead(title, desc, actions, badge) {
     return `<div class="page-head"><div><div class="page-title">${title} ${badge || demoBadge()}</div><div class="page-desc">${desc || ''}</div></div><div class="spacer"></div><div class="page-actions">${actions || ''}</div></div>`;
   }
@@ -344,7 +389,7 @@
         <span class="spacer" style="flex:1"></span>
         <button class="btn sm" onclick="UI.go('gis',{focus:'${code}'})">${icon('map', 13)} 孪生定位</button>
         <button class="btn sm" onclick="UI.go('topology',{focus:'${code}'})">${icon('topo', 13)} 拓扑关系</button>
-        ${code === 'CAM-057' ? `<button class="btn sm" onclick="UI.go('camera-renewal',{from:'device',focus:'${code}'})">同杆修换测算示例</button>` : ''}
+        ${code === 'CAM-057' ? `<button class="btn sm" onclick="UI.go('camera-renewal',{from:'device',focus:'${code}'})">同杆修换测算</button>` : ''}
         ${code === 'L-CIR-03' || dev.zone === 'Z-03' ? `<button class="btn sm" onclick="UI.go('light')">照明策略与节能核算</button>` : ''}
         <button class="btn sm" onclick="UI.go('ai',{q:'${encodeURIComponent('设备' + code + '近30天有哪些异常？')}'})">${icon('ai', 13)} AI分析</button>
       </div>
@@ -372,7 +417,7 @@
         <span class="k">当前告警</span><span class="v">${devAlarms.filter(a => a.status === 'active').length} 条</span>
       </div>
       <div class="chip-row">${eventLinks(dev.code)}</div>
-      <div class="sec-t">参数趋势 <span class="badge-demo">模拟数据</span>
+      <div class="sec-t">参数趋势
         <span style="flex:1"></span>
         <span class="btn-group" id="dev-range">
           <button class="seg on" data-r="24">近24小时</button><button class="seg" data-r="7">近7天</button><button class="seg" data-r="30">近30天</button>
@@ -385,7 +430,7 @@
           <div class="evi-t">${levelTag(a.level)} ${a.type} <span style="flex:1"></span><span class="small muted">${a.status === 'active' ? '<span class="tag err">未解除</span>' : '<span class="tag ok">已恢复</span>'}</span></div>
           <div class="evi-d">${a.desc}</div>
           <div class="src">${D.fmtTime(a.start)} 发生${a.end ? ' · ' + D.fmtTime(a.end) + ' 恢复' : ''} · 来源 ${a.sourceId}</div>
-        </div>`).join('') : '<div class="muted small" style="padding:4px 0">近期无告警记录（模拟数据）</div>'}
+        </div>`).join('') : '<div class="muted small" style="padding:4px 0">近期无告警记录</div>'}
       <div class="sec-t">维护摘要</div>
       <div class="kv">
         <span class="k">最近维修</span><span class="v">${dev.lastRepair}</span>
@@ -438,11 +483,12 @@
   function openEvent(id) {
     const e = D.events.find(item => item.id === id);
     if (!e) return;
-    if (e.page !== 'diagnosis') {
+    if (e.page !== 'diagnosis' || e.traceWindows) {
       closeDrawer();
       go(e.page, { id });
       return;
     }
+    if (D.isOpenMajor(e)) { markRead('event', e.id); refreshNoticeCounts(); }
     const codes = [...e.affected, ...e.related];
     const alarms = D.alarms.filter(a => codes.includes(a.asset)).sort((a, b) => b.start - a.start);
     const task = D.tasks.find(t => t.eventId === id);
@@ -465,9 +511,11 @@
   function openRecentAlarms() {
     openDrawer('近24小时告警 · ' + D.recentAlarms.length + ' 条', alarmRows(D.recentAlarms, true));
   }
-  function openAlarm(id, fromRecent = false) {
+  function openAlarm(id, origin = false) {
     const a = D.alarms.find(x => x.id === id);
     if (!a) return;
+    markRead('alarm', id);
+    refreshNoticeCounts();
     const dev = D.byCode[a.asset];
     openDrawer('告警详情 <span class="mono small muted">' + a.id + '</span>', `
       <div class="flex ai-center mb">${levelTag(a.level)} ${a.status === 'active' ? '<span class="tag err">未解除</span>' : '<span class="tag ok">已恢复</span>'} ${demoBadge()}</div>
@@ -479,7 +527,7 @@
         <span class="k">数据来源</span><span class="v">${a.sourceId}</span>
       </div>
       <div class="chip-row">${eventLinks(a.asset)}</div>
-      ${fromRecent ? '<button class="btn sm mt" onclick="UI.openRecentAlarms()">返回近24小时告警</button>' : ''}
+      ${origin === 'current' ? '<button class="btn sm mt" onclick="UI.openCurrentAlarms()">返回当前告警</button>' : origin ? '<button class="btn sm mt" onclick="UI.openRecentAlarms()">返回近24小时告警</button>' : ''}
       <div class="sec-t">告警描述</div><p style="font-size:12px;line-height:1.8;color:var(--text-2)">${a.desc}</p>
       <div class="divider"></div>
       <button class="btn primary" onclick="UI.openDevice('${a.asset}')">${icon('dev', 14)} 查看设备档案</button>
@@ -487,17 +535,32 @@
   }
 
   /* ---------- 顶栏 ---------- */
-  function initTopbar() {
+  function openCurrentAlarms() {
     const active = D.alarms.filter(a => a.status === 'active');
-    document.getElementById('alarm-cnt').textContent = active.length;
-    document.getElementById('alarm-btn').addEventListener('click', () => {
-      openDrawer('当前告警（' + active.length + '）', active.map(a => {
-        const dev = D.byCode[a.asset];
-        return `<div class="evi" style="cursor:pointer" onclick="UI.openAlarm('${a.id}')">
-          <div class="evi-t">${levelTag(a.level)} ${a.type}<span style="flex:1"></span><span class="small muted">${D.fmtTime(a.start)}</span></div>
-          <div class="evi-d"><span class="mono" style="color:var(--blue-deep)">${a.asset}</span> ${dev ? dev.name : ''} — ${a.desc}</div>
-        </div>`;
-      }).join(''));
+    const unread = active.filter(a => !isNoticeRead('alarm', a.id));
+    const rows = [...unread, ...active.filter(a => isNoticeRead('alarm', a.id))];
+    const body = openDrawer('当前告警（' + active.length + '）', `<div class="flex ai-center mb" id="current-alarm-list">
+      <span>未读 ${unread.length} 条</span><span class="spacer"></span>
+      <button class="btn sm" id="read-all-alarms" ${unread.length ? '' : 'disabled'}>全部标为已读</button></div>
+      ${rows.map(a => `<button type="button" class="evi alarm-list-item" data-alarm-read="${a.id}">
+        <span class="evi-t">${levelTag(a.level)} ${a.type}<time>${D.fmtTime(a.start)}</time></span>
+        <span class="evi-d">${a.asset} · ${D.byCode[a.asset]?.name || ''} — ${a.desc}</span>
+        <span class="src">${isNoticeRead('alarm', a.id) ? '已读' : '未读'}</span></button>`).join('') || '<div class="empty">暂无当前告警</div>'}`);
+    body.querySelectorAll('[data-alarm-read]').forEach(b => b.onclick = () => openAlarm(b.dataset.alarmRead, 'current'));
+    body.querySelector('#read-all-alarms').onclick = () => {
+      unread.forEach(a => markRead('alarm', a.id));
+      refreshNoticeCounts();
+      openCurrentAlarms();
+    };
+  }
+  function initTopbar() {
+    document.getElementById('alarm-btn').addEventListener('click', openCurrentAlarms);
+    window.addEventListener('storage', ev => {
+      if (ev.key !== null && !ev.key.startsWith(readPrefix)) return;
+      if (ev.key === null) readInSession.clear();
+      else readInSession.delete(ev.key);
+      refreshNoticeCounts();
+      if (document.querySelector('#drawer.show #current-alarm-list')) openCurrentAlarms();
     });
     document.getElementById('role-sel').addEventListener('change', ev => {
       role = ev.target.value;
@@ -508,7 +571,7 @@
     document.getElementById('reset-btn').addEventListener('click', () => {
       D.clearTaskReviews();
       localStorage.removeItem('demo-cfg-edits'); localStorage.removeItem('demo-light-plan');
-      toast('模拟数据已重置为默认状态', 'ok');
+      toast('本地设置和核验记录已重置', 'ok');
       render();
     });
     const si = document.getElementById('top-search-input');
@@ -548,7 +611,7 @@
     const links = (a.links || []).map(l => l.code
       ? `<button class="btn sm" onclick="UI.openDevice('${l.code}')">${icon('dev', 12)} ${l.label}</button>`
       : `<button class="btn sm" onclick="UI.go('${l.page}'${l.params ? ',' + JSON.stringify(l.params).replace(/"/g, '&quot;') : ''})">${icon('link', 12)} ${l.label}</button>`).join('');
-    wrap.innerHTML = `<div class="rp-ai-h">${icon('ai', 13)} 分析结论 ${demoBadge('模拟数据')}</div>
+    wrap.innerHTML = `<div class="rp-ai-h">${icon('ai', 13)} 分析结论 ${demoBadge()}</div>
       <p class="rp-sum">${a.summary}</p>
       ${(a.data || []).length ? `<div class="rp-data">${a.data.map(x => `<div><span>${x.label}</span><b>${x.value}</b></div>`).join('')}</div>` : ''}
       ${(a.basis || []).length ? `<div class="rp-toggle" data-t>分析依据 ▾</div><div class="rp-basis" style="display:none">${a.basis.map(b => '<div>· ' + b + '</div>').join('')}</div>` : ''}
@@ -586,8 +649,8 @@
       return;
     }
     thread.innerHTML = `<div class="rp-hello"><b>${icon('ai', 14)} 运维分析助手</b>
-      <div>我已读取当前页面的模拟数据上下文。点击上方预设问题即可快速分析，也可输入设备编码（CAM-01）/事件编号（EV-1123-01）。</div>
-      <div class="muted">仅基于内置模拟数据作答 · 无数据则说明无法判断 · 不提供控制/审批/外部操作</div></div>`;
+      <div>可查询当前页面的设备和事件。点击上方预设问题即可快速分析，也可输入设备编码（CAM-01）/事件编号（EV-1123-01）。</div>
+      <div class="muted">分析依据为当前数据集，处置建议需现场核查。</div></div>`;
   }
   function initRobot() {
     const btn = document.getElementById('robot-btn');
@@ -617,20 +680,19 @@
           <div><div class="brand-name">机电智能运维平台</div><div class="brand-sub">高速公路 · 数字孪生</div></div>
         </div></div>
         <nav id="nav" class="dark-scroll"></nav>
-        <div class="sidebar-foot">A高速示范路段（虚构）<br>不连接真实设备与外部系统</div>
       </aside>
       <div id="main">
         <header id="topbar">
-          <div class="top-road road-default">${icon('road', 15)} A高速示范路段 <span class="tag plain">K0+000 — K58+000</span></div>
+          <div class="top-road road-default">${icon('road', 15)} A高速 <span class="tag plain">K0+000 — K58+000</span></div>
           <div class="top-search">${icon('search', 14)}<input id="top-search-input" placeholder="搜索设备编号 / 名称 / 桩号，回车检索"></div>
           <div class="top-spacer"></div>
           <div class="top-clock" id="top-clock"></div>
           <button class="top-icon-btn" id="alarm-btn" title="当前告警">${icon('bell', 16)}<span class="cnt" id="alarm-cnt"></span></button>
-          <button class="top-icon-btn" id="reset-btn" title="重置模拟数据">${icon('reset', 15)}</button>
+          <button class="top-icon-btn" id="reset-btn" title="重置本地设置和核验记录">${icon('reset', 15)}</button>
           <select class="role-select" id="role-sel" title="角色切换">
             ${Object.keys(ROLE_MENUS).map(r => `<option>${r}</option>`).join('')}
           </select>
-          <div class="top-user"><div class="avatar">演</div><span>演示用户</span></div>
+          <div class="top-user"><div class="avatar">运</div><span>运维用户</span></div>
         </header>
         <main id="content"></main>
       </div>
@@ -647,7 +709,7 @@
       <div id="robot-panel" role="dialog" aria-label="AI 运维分析助手">
         <div class="rp-h">
           <div class="rp-ava">${icon('ai', 16)}</div>
-          <div class="rp-tt"><b>运维分析助手</b><span id="rp-page"></span></div>
+          <div class="rp-tt"><b>${window.PersonalQwen ? '千问运维助手' : '运维助手 · 本地分析'}</b><span id="rp-page"></span></div>
           <button class="rp-ib" id="rp-reset" title="重置对话">${icon('reset', 14)}</button>
           <button class="rp-ib" id="rp-close" title="收起">✕</button>
         </div>
@@ -657,7 +719,7 @@
           <input class="inp" id="rp-input" placeholder="输入问题 / 设备编码 / 事件编号…" autocomplete="off">
           <button class="btn primary" id="rp-send">${icon('ai', 14)} 分析</button>
         </div>
-        <div class="rp-note">${window.PersonalQwen ? '个人千问会话 · 提问和相关演示数据将发送至阿里云' : '仅基于内置模拟数据 · 关联≠因果 · 不提供控制/审批/外部操作'}</div>
+        <div class="rp-note">${window.PersonalQwen ? '个人千问会话 · 提问和相关业务数据将发送至阿里云' : '仅基于内置数据集 · 关联≠因果 · 不提供控制/审批/外部操作'}</div>
       </div>`;
     document.getElementById('modal-mask').addEventListener('click', ev => { if (ev.target.id === 'modal-mask') closeModal(); });
     document.addEventListener('keydown', ev => {
@@ -674,7 +736,7 @@
   window.Pages = Pages;
   window.UI = {
     icon, go, render, openDrawer, closeDrawer, modal, closeModal, toast, copy,
-    statusTag, levelTag, catTag, demoBadge, pageHead, kpi, esc, table, openDevice, openAlarm, openRecentAlarms, openEvent,
+    statusTag, levelTag, catTag, demoBadge, pageHead, kpi, esc, table, openDevice, openAlarm, openRecentAlarms, openCurrentAlarms, openEvent, isNoticeRead,
     paramTemplate, boot, get role() { return role; }, NAV
   };
 })();

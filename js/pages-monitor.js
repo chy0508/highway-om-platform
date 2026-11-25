@@ -65,7 +65,7 @@
     return {
       left: panel('养护路线','road',`<div class="route-matrix"><div class="triplet table-label"><span>路线名称</span><span>里程 / km</span><span>待办</span></div>
         <div class="route-scroll">${routes}</div></div>`,'<a href="#/gis?mode=macro">路网总览 ›</a>','routes-panel')
-        + panel('沿线设施','dev',`<div class="infra-table"><div class="table-label"><span>设施</span><span>纳管</span><span>在线</span><span>异常</span></div>${infra}</div><button type="button" class="camera-preview" data-video-preview><span>${U.icon('play',14)} 隧道照明预警 · 样片</span></button>`,
+        + panel('沿线设施','dev',`<div class="infra-table"><div class="table-label"><span>设施</span><span>纳管</span><span>在线</span><span>异常</span></div>${infra}</div><button type="button" class="camera-preview" data-video-preview><span>${U.icon('play',14)} 隧道照明预警视频</span></button>`,
           '<button type="button" class="video-link" data-video-preview>查看视频 ›</button>')
         + panel('关键系统状态','diag',`<div class="systems">${systems}</div>`,'<small>在线率</small>')
         + panel('设备构成','db',`<div class="composition">${composition}</div>`,ring),
@@ -111,7 +111,7 @@
     return panel('能效分析','opt',`<a href="#/kpi" class="energy-summary">
       <div><small>单位工况能耗</small><strong>${metric.current.toFixed(2)}</strong><span>${metric.unit}</span></div>
       <div class="energy-change"><svg viewBox="0 0 143 57" preserveAspectRatio="none" aria-label="能耗变化趋势"><polyline points="${points}"/></svg><small>较基线 ${change}%</small></div></a>
-      <div class="cost-ranking"><header><strong>本月能源费用样例</strong><span class="cost-stack" aria-hidden="true">${ranked.map(({share},i)=>`<i style="flex:${share};background:${['#6faeff','#78cece','#bc9aff'][i]}"></i>`).join('')}</span><span>万元</span></header>
+      <div class="cost-ranking"><header><strong>本月能源费用测算</strong><span class="cost-stack" aria-hidden="true">${ranked.map(({share},i)=>`<i style="flex:${share};background:${['#6faeff','#78cece','#bc9aff'][i]}"></i>`).join('')}</span><span>万元</span></header>
       ${ranked.map(({name,value,link,share})=>`<a href="#/${link}" class="cost-rank"><span>${name}</span><i><em style="width:${share}%"></em></i><b>${value.toFixed(1)}</b><small>${share.toFixed(0)}%</small></a>`).join('')}</div>`,
       '<a href="#/fan">运行优化 ›</a>','efficiency-panel');
   }
@@ -148,7 +148,7 @@
         return `<i data-hour="${index%4===0?String(hour).padStart(2,'0'):''}" style="--level:${Math.max(8,count/hourlyMax*100)}%" title="${hour}时 · ${count} 起"></i>`;
       }).join('');
       el.innerHTML = `<div class="drive">
-        <div id="dash-map" aria-label="A高速示范路段交互地图"></div>
+        <div id="dash-map" aria-label="A高速交互地图"></div>
         <header class="drive-head">
           <div class="drive-brand">
             <button class="drive-menu" type="button" aria-label="业务导航" aria-controls="sidebar" aria-expanded="false">☰</button>
@@ -169,7 +169,7 @@
       </div>`;
       const drive = el.querySelector('.drive');
       drive.querySelectorAll('[data-video-preview]').forEach(button=>button.onclick=()=>{
-        U.modal('隧道照明预警 · 演示视频',
+        U.modal('隧道照明预警视频',
           '<video controls autoplay playsinline preload="metadata" style="display:block;width:100%;max-height:68vh;background:#071324" src="assets/tunnel-lighting-demo.mp4"></video>');
       });
       const toggle = drive.querySelector('.drive-toggle');
@@ -273,7 +273,7 @@
                 <button class="hud-btn" id="hud-inside" style="display:none">${U.icon('play', 13)} 洞内视角</button>
                 <button class="hud-btn on" id="hud-auto">${U.icon('reset', 13)} 自动巡航</button>
               </div>
-              <div class="twin-hud-r"><span class="hud-live" id="hud-live" style="display:none"></span><span class="badge-demo">孪生场景 · 模拟坐标</span></div>
+              <div class="twin-hud-r"><span class="hud-live" id="hud-live" style="display:none"></span></div>
               <div class="twin-legend" id="twin-legend"></div>
               <div class="twin-tip"></div>
               <div class="twin-info" id="twin-info"></div>
@@ -310,7 +310,7 @@
                     <div class="ctl-sw"><span>供配电/检测</span><span class="switch on" data-eq="power"></span></div>
                   </div>
                   <div class="ctl-group" id="ctl-room" style="display:none">
-                    <div class="ctl-t">机房模拟调控 <span class="tag warn" style="margin-left:4px">不下发</span></div>
+                    <div class="ctl-t">机房工况试算 <span class="tag warn" style="margin-left:4px">不下发</span></div>
                     <div class="range-row"><span>空调设定</span><input type="range" id="ctl-setpoint" min="18" max="28" step="0.5" value="24"><span class="rv" id="ctl-setpoint-v">24℃</span></div>
                     <div class="range-row"><span>机柜负载</span><input type="range" id="ctl-load" min="20" max="95" value="60"><span class="rv" id="ctl-load-v">60%</span></div>
                     <div class="range-row"><span>照明亮度</span><input type="range" id="ctl-roomlight" min="0" max="100" value="60"><span class="rv" id="ctl-roomlight-v">60%</span></div>
@@ -336,13 +336,13 @@
       function showInfo(sel) {
         let html = '';
         if (sel.kind === 'schematic') {
-          html = `<h4>${sel.name || '场景对象'}</h4><div class="row">结构示意 · 该对象尚未关联设备档案</div>`;
+          html = `<h4>${sel.name || '场景对象'}</h4><div class="row">结构构件 · 该对象尚未关联设备档案</div>`;
         } else if (sel.kind === 'device') {
           const d = D.byCode[sel.code];
           if (!d) {
             html = `<h4><span class="tag info">场景对象</span> ${sel.name || sel.code}</h4>
               <div class="row"><span>编码</span><b class="mono">${sel.code}</b></div>
-              <div style="margin-top:6px;color:#90a7c7;line-height:1.6">该对象为当前孪生场景的示意模型，未纳入统一设备台账。</div>`;
+              <div style="margin-top:6px;color:#90a7c7;line-height:1.6">该对象为当前孪生场景的三维模型，未纳入统一设备台账。</div>`;
           } else {
             const acts = d.alarms.filter(a => a.status === 'active').length;
             html = `<h4>${U.statusTag(d.status)} ${d.name}</h4>
@@ -402,7 +402,7 @@
             <div class="row"><span>进风温度(映射)</span><b>${(s.coldAisle + off).toFixed(1)} ℃</b></div>
             <div class="row"><span>机柜负载(映射)</span><b>${Math.round(s.load * 100)} %</b></div>
             <div class="row"><span>回路功率(映射)</span><b>${(s.load * 6 + off).toFixed(1)} kW</b></div>
-            <div class="small" style="color:#6d84a6;margin-top:4px">指标为动环/电源模拟映射值</div>`;
+            <div class="small" style="color:#6d84a6;margin-top:4px">指标为动环/电源模型映射值</div>`;
         }
         info.innerHTML = html;
         info.classList.add('show');
@@ -531,23 +531,23 @@
         p.innerHTML = `
           <div class="pred ${tempMin ? 'warn' : 'ok'}">
             <div class="pred-h"><b>机柜进风温度超阈预测</b><span class="tag ${tempMin ? 'warn' : 'ok'}">${tempMin ? '关注' : '正常'}</span></div>
-            <div class="pred-b">${tempMin ? '按当前设定 ' + s.setpoint + '℃ 与负载 ' + Math.round(s.load * 100) + '%，冷通道预计 <b>' + tempMin + ' 分钟</b>后触及 28℃ 阈值（模拟推算）。' : '当前设定 ' + s.setpoint + '℃ 下冷通道无超阈风险（模拟推算）。'}</div>
-            <div class="pred-f"><span class="small muted">阈值 28℃ · 模拟预测</span><button class="btn sm" onclick="UI.go('diagnosis')">诊断中心 ›</button></div>
+            <div class="pred-b">${tempMin ? '按当前设定 ' + s.setpoint + '℃ 与负载 ' + Math.round(s.load * 100) + '%，冷通道预计 <b>' + tempMin + ' 分钟</b>后触及 28℃ 阈值（模型推算）。' : '当前设定 ' + s.setpoint + '℃ 下冷通道无超阈风险（模型推算）。'}</div>
+            <div class="pred-f"><span class="small muted">阈值 28℃ · 模型预测</span><button class="btn sm" onclick="UI.go('diagnosis')">诊断中心 ›</button></div>
           </div>
           <div class="pred warn">
             <div class="pred-h"><b>UPS 电池容量衰减预测</b><span class="tag warn">关注</span></div>
-            <div class="pred-b">电池健康 ${s.batteryHealth.toFixed(0)}%，按离散趋势预计 <b>${fmtYM(batDate)}</b> 容量低于 80%，建议分批更新（模拟推算）。</div>
-            <div class="pred-f"><span class="small muted">阈值 80% · 模拟预测</span><button class="btn sm" onclick="UI.go('ups')">UPS 决策 ›</button></div>
+            <div class="pred-b">电池健康 ${s.batteryHealth.toFixed(0)}%，按离散趋势预计 <b>${fmtYM(batDate)}</b> 容量低于 80%，建议分批更新（模型推算）。</div>
+            <div class="pred-f"><span class="small muted">阈值 80% · 模型预测</span><button class="btn sm" onclick="UI.go('ups')">UPS 决策 ›</button></div>
           </div>
           <div class="pred warn">
             <div class="pred-h"><b>精密空调滤网堵塞预测</b><span class="tag warn">关注</span></div>
-            <div class="pred-b">滤网压差 ${s.filterDP.toFixed(0)} Pa，预计 <b>${filterDays} 天</b>（${fmtMD(filterDate)}）达 150 Pa 堵塞阈值（模拟推算）。</div>
-            <div class="pred-f"><span class="small muted">阈值 150Pa · 模拟预测</span><button class="btn sm" onclick="UI.go('keydev')">重点设备 ›</button></div>
+            <div class="pred-b">滤网压差 ${s.filterDP.toFixed(0)} Pa，预计 <b>${filterDays} 天</b>（${fmtMD(filterDate)}）达 150 Pa 堵塞阈值（模型推算）。</div>
+            <div class="pred-f"><span class="small muted">阈值 150Pa · 模型预测</span><button class="btn sm" onclick="UI.go('keydev')">重点设备 ›</button></div>
           </div>
           <div class="pred">
             <div class="pred-h"><b>核心交换机 CPU 趋势预测</b><span class="tag info">一般</span></div>
-            <div class="pred-b">CPU ${s.cpu.toFixed(0)}%，趋势 +0.4%/h，预计 <b>${cpuHours} 小时</b>后达 90%（模拟推算）。</div>
-            <div class="pred-f"><span class="small muted">阈值 90% · 模拟预测</span><button class="btn sm" onclick="UI.go('diagnosis')">诊断中心 ›</button></div>
+            <div class="pred-b">CPU ${s.cpu.toFixed(0)}%，趋势 +0.4%/h，预计 <b>${cpuHours} 小时</b>后达 90%（模型推算）。</div>
+            <div class="pred-f"><span class="small muted">阈值 90% · 模型预测</span><button class="btn sm" onclick="UI.go('diagnosis')">诊断中心 ›</button></div>
           </div>`;
       }
       function buildBottom() {
@@ -566,12 +566,12 @@
           }));
         } else if (mode === 'room') {
           bt.innerHTML = `
-            <div class="card-h"><span class="card-t">机房实时映射 · 预警预测</span><span class="sub">动环/电源/负载模拟映射 · 模拟推算</span><span class="spacer"></span>${U.demoBadge()}</div>
+            <div class="card-h"><span class="card-t">机房实时映射 · 预警预测</span><span class="sub">动环/电源/负载模型映射 · 模型推算</span><span class="spacer"></span>${U.demoBadge()}</div>
             <div class="card-b">
               <div class="cap-strip">
                 <div class="cap"><b>模仿</b><span>环境/负载/气流仿真</span></div>
                 <div class="cap"><b>映射</b><span>动环·电源·负载实时映射</span></div>
-                <div class="cap"><b>控制</b><span>模拟调控 · 不下发指令</span></div>
+                <div class="cap"><b>控制</b><span>工况试算 · 不下发指令</span></div>
                 <div class="cap"><b>预警预测</b><span>阈值/趋势/容量推算</span></div>
               </div>
               <div class="grid g-2 mt">
@@ -657,7 +657,7 @@
             const button = el.querySelector('#gis-environment');
             if (button) {
               button.disabled = true;
-              button.title = '二维示意模式无法显示三维地形';
+              button.title = '二维视图无法显示三维地形';
               button.textContent = '二维路网';
               button.classList.remove('primary');
               button.setAttribute('aria-checked', 'false');
@@ -806,7 +806,7 @@
       el.innerHTML = U.pageHead('设备监测 · 全专业设备列表',
         '统一纳管六大专业 ' + D.stats().total.toLocaleString() + ' 台设备。不同厂家设备映射到统一编码；无采集数据的设备显示数据中断，不默认正常。点击行打开设备档案抽屉。',
         `<button class="btn" id="dev-clear">${U.icon('reset', 14)} 清空筛选</button>
-         <button class="btn" onclick="UI.toast('已模拟导出设备台账（模拟反馈）','ok')">${U.icon('export', 14)} 导出台账</button>`) +
+         <button class="btn" id="dev-export">${U.icon('export', 14)} 导出台账</button>`) +
         `<div class="tabs" id="dev-tabs"></div>
         <div class="card mb"><div class="card-b">
           <div class="filter-bar">
@@ -850,7 +850,7 @@
           <span class="it" style="cursor:pointer" data-st="online"><b style="color:#15803d">${s.onlineRate.toFixed(1)}%</b>在线率（${s.online}）</span>
           <span class="it" style="cursor:pointer" data-st="warn"><b style="color:#b45309">${s.warn}</b>异常</span>
           <span class="it" style="cursor:pointer" data-st="offline"><b style="color:#64748b">${s.offline}</b>离线</span>
-          <span class="it muted small" style="align-self:center">点击统计可快速筛选 · ${U.demoBadge()}</span>`;
+          <span class="it muted small" style="align-self:center">点击统计可快速筛选</span>`;
         el.querySelectorAll('#dev-stats [data-st]').forEach(x => x.addEventListener('click', () => {
           state.status = x.dataset.st; el.querySelector('#dev-status').value = state.status; drawTable();
         }));
@@ -888,6 +888,21 @@
       [['#dev-status', 'status'], ['#dev-imp', 'imp'], ['#dev-place', 'place'], ['#dev-vendor', 'vendor']].forEach(([sel, key]) => {
         el.querySelector(sel).addEventListener('change', ev => { state[key] = ev.target.value; drawTable(); });
       });
+      el.querySelector('#dev-export').addEventListener('click', () => {
+        const rows = filtered();
+        const header = ['设备编码','设备名称','专业','类型','厂家','型号','桩号','位置','状态','当前告警','等级','最近通信'];
+        const data = rows.map(d => [d.code, d.name, D.CATS[d.cat].name, d.type, d.vendor, d.model, d.kmText,
+          d.place || d.section, D.STATUS[d.status].name, d.alarms.filter(a => a.status === 'active').length,
+          d.importance, D.fmtTime(d.lastComm, 'full')]);
+        const cell = value => '"' + String(value ?? '').replace(/"/g, '""') + '"';
+        const csv = [header, ...data].map(row => row.map(cell).join(',')).join('\r\n');
+        const url = URL.createObjectURL(new Blob(['\uFEFF', csv], {type:'text/csv;charset=utf-8'}));
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = '设备台账.csv';
+        link.click();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+      });
       el.querySelector('#dev-clear').addEventListener('click', () => UI.tableClear());
     }
   };
@@ -900,7 +915,7 @@
       const ok = D.sources.filter(s => s.status === '正常').length;
       el.innerHTML = U.pageHead('数据接入 · 多厂家数据源总览',
         '平台优先复用各厂家既有平台与接口：API、数据库只读视图、标准协议、边缘网关与文件批量同步。区分“源平台中断”与“设备离线”，避免把采集链路故障误判为设备故障。',
-        `<button class="btn" onclick="UI.toast('已模拟触发全量同步检查（模拟反馈）','ok')">${U.icon('reset', 14)} 同步检查</button>`) +
+        `<button class="btn" onclick="UI.toast('当前接入记录：${ok} 个来源正常，${D.sources.length - ok} 个需核查。')">${U.icon('reset', 14)} 查看同步状态</button>`) +
         `<div class="grid g-4 mb">
           ${U.kpi('接入数据源', D.sources.length, '覆盖 6 大专业 + 台账文件', '#2f7bff', null, 'db', '个')}
           ${U.kpi('连接正常', ok, 'API×3 · 协议×1 · 视图×1 · 文件×1', '#16a34a', null, 'check', '个')}

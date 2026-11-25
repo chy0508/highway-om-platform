@@ -45,14 +45,14 @@
       this.pose = 'overview';
       this.selected = null;
       this.config = modelConfig({},this.context);
-      this.innerHTML = `<div class="songlan-stage" aria-label="${scope.name} · 桥隧三维示意">
+      this.innerHTML = `<div class="songlan-stage" aria-label="${scope.name} · 桥隧三维模型">
         <div class="songlan-canvas"></div><div class="songlan-labels"></div>
         <div class="bridge-scene-actions"><button class="hud-btn" data-view="cutaway">${U.icon('eye',13)} 隧道整体</button><button class="hud-btn" data-view="top">俯瞰</button><button class="hud-btn" data-view="interior">${U.icon('play',13)} 洞内视角</button><button class="hud-btn" data-cruise aria-pressed="false">${U.icon('reset',13)} 自动巡航</button><button class="hud-btn" data-view="overview">桥隧全景</button></div>
         <div class="twin-legend bridge-legend"><div class="li"><span class="cd" style="background:#ffd28a"></span>照明分区</div><div class="li"><span class="cd" style="background:#4fd8f0"></span>风机与控制设备</div></div>
         <div class="songlan-tools"><button aria-label="放大模型" data-zoom="1">＋</button><button aria-label="缩小模型" data-zoom="-1">−</button></div>
         <div class="songlan-message" role="status">正在加载${scope.name}三维模型…</div>
         <div class="bridge-selection" aria-live="polite" hidden></div>
-        <small class="songlan-credit">${scope.name} · 桥隧与设备位置为示意</small>
+        <small class="songlan-credit">${scope.name} · 桥隧与设备采用模型坐标</small>
       </div>`;
       const stage = this.querySelector('.songlan-stage');
       const panel = this.querySelector('.bridge-selection');
@@ -80,7 +80,7 @@
         title.textContent = object.name; panel.append(title);
         const note = document.createElement('small');
         const zoneEvent = events.find(e => object.code === 'Z-03' && e.page === 'scene-lighting');
-        note.textContent = zoneEvent ? zoneEvent.status + ' · ' + zoneEvent.affected.length + ' 盏关联灯具' : scope.name + ' · ' + (object.kind === 'zone' ? '照明分区' : '示意设备');
+        note.textContent = zoneEvent ? zoneEvent.status + ' · ' + zoneEvent.affected.length + ' 盏关联灯具' : scope.name + ' · ' + (object.kind === 'zone' ? '照明分区' : '设备模型');
         panel.append(note);
         if (zoneEvent) {
           const b = document.createElement('button'); b.className='hud-btn'; b.textContent='照明诊断'; b.onclick=()=>U.openEvent(zoneEvent.id); panel.append(b);
@@ -136,7 +136,7 @@
           stage.dataset.ready = 'schematic';
           cruise.disabled = true;
           this.querySelector('.songlan-tools').hidden = true;
-          message.textContent = '三维模型暂不可用，当前显示桥隧示意图';
+          message.textContent = '三维模型暂不可用，当前显示桥隧平面图';
           this.buildFallback();
           const retry=document.createElement('button');
           retry.type='button'; retry.className='hud-btn'; retry.textContent='重试三维模型';

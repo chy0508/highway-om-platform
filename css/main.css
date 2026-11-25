@@ -91,7 +91,8 @@ button { font-family: var(--font); }
 }
 .nav-sub-item:hover { color: #fff; background: rgba(47,123,255,.1); }
 .nav-sub-item.active { color: #6fd7ef; border-left-color: var(--cyan); background: rgba(0,184,217,.08); }
-.nav-badge { margin-left: auto; background: var(--red); color: #fff; font-size: 10px; padding: 1px 6px; border-radius: 8px; }
+.top-icon-btn .cnt[hidden], .nav-badge[hidden] { display: none; }
+.nav-badge { cursor: pointer; font: inherit; border: 0; margin-left: auto; background: var(--red); color: #fff; font-size: 10px; padding: 1px 6px; border-radius: 8px; }
 .sidebar-foot { padding: 10px 16px; border-top: 1px solid rgba(255,255,255,.07); font-size: 10px; color: #64799a; line-height: 1.6; }
 
 #main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
@@ -735,6 +736,7 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 12px; }
 .rp-chip { border: 1px solid #cfe0f5; background: #fff; color: var(--blue-deep); font-size: 11.5px; border-radius: 14px; padding: 3px 10px; cursor: pointer; transition: background .15s, border-color .15s; font-family: inherit; }
 .rp-chip:hover { background: var(--cyan-soft); border-color: var(--cyan); }
 .rp-thread { flex: 1; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 10px; background: #fbfcfe; }
+.rp-thread > *, #ai-thread > * { flex-shrink: 0; }
 .rp-hello { background: var(--cyan-soft); border: 1px solid #bfe9f2; border-radius: 9px; padding: 10px 12px; font-size: 12px; line-height: 1.7; color: var(--text-2); }
 .rp-hello b { display: flex; gap: 6px; align-items: center; color: var(--navy-800); font-size: 12.5px; margin-bottom: 4px; }
 .rp-hello .muted { font-size: 10.5px; margin-top: 4px; }

@@ -32,7 +32,7 @@
   function ago(min) { return new Date(NOW.getTime() - min * 60000); }
 
   /* ---------- 路段与结构物 ---------- */
-  const ROAD = { name: 'A高速示范路段', start: 0, end: 58, code: 'G-DEMO-A' };
+  const ROAD = { name: 'A高速', start: 0, end: 58, code: 'G-DEMO-A' };
   const TUNNELS = [
     { id: 'QL', name: '青岭隧道', start: 17.8, end: 19.6, length: 1800, lanes: 2, hero: true },
     { id: 'NL', name: '南岭隧道', start: 31.2, end: 33.0, length: 1800, lanes: 2 },
@@ -358,6 +358,25 @@
   rel('COVI-01', 'SW-12', '网络上联', 'normal', '环境数据上送');
 
   /* ---------- 诊断事件 ---------- */
+  // Historical records for one registered camera. These samples do not change its live status.
+  const dropoutWindows = [
+    {
+      date: '2026-11-20', visit: '09:20:00', visitV: 229,
+      episodes: [
+        { loss: '08:41:03', seconds: 19, supply: '08:41:00', voltage: 174, dip: true, port: '08:41:02' },
+        { loss: '08:50:08', seconds: 27, supply: '08:50:03', voltage: 178, dip: true, port: '08:50:07' },
+        { loss: '08:58:14', seconds: 22, supply: '08:58:10', voltage: 176, dip: true, port: '08:58:12' }
+      ]
+    },
+    {
+      date: '2026-11-21', visit: '15:10:00', visitV: 230,
+      episodes: [
+        { loss: '14:17:08', seconds: 16, supply: '14:17:00', voltage: 229, dip: false, port: '14:17:06' },
+        { loss: '14:29:13', seconds: 24, supply: '14:29:07', voltage: 230, dip: false, port: '14:29:10' },
+        { loss: '14:35:22', seconds: 18, supply: '14:35:16', voltage: 229, dip: false, port: '14:35:19' }
+      ]
+    }
+  ];
   const events = [
     {
       id: 'EV-1123-01', name: '青岭隧道北洞摄像机集体离线', cat: 'monitor', type: '设备离线',
@@ -381,7 +400,7 @@
       level: '重要', time: ago(2880), km: 0.3, place: '监控中心机房',
       affected: ['BAT-01'], related: ['UPS-01'], status: '已生成候选原因', page: 'ups', duration: '2天',
       summary: '#07/#12/#19单体浮充电压偏低、内阻较投运基线上升35%以上，建议核对性放电测试。',
-      candidate: '疑似3节单体老化，建议容量核查后评估分批更新（示例测算）', score: 74
+      candidate: '疑似3节单体老化，建议容量核查后评估分批更新（方案测算）', score: 74
     },
     {
       id: 'EV-1123-04', name: '青龙收费站车道设备通信超时', cat: 'toll', type: '通信链路异常',
@@ -403,6 +422,14 @@
       affected: ['CSW-01'], related: [], status: '已恢复', page: 'diagnosis', duration: '3小时40分钟（已恢复）',
       summary: 'CPU利用率短时达到82%，与视频调阅高峰重合，已自动恢复。',
       candidate: '已恢复：业务高峰负载，无需处置', score: 0
+    },
+    {
+      id: 'EV-1120-08', name: '南岭北洞摄像机间歇掉线', cat: 'monitor', type: '间歇掉线',
+      level: '一般', time: new Date(2026, 10, 20, 8, 41, 3), km: byCode['CAM-057'].km, place: byCode['CAM-057'].place,
+      affected: ['CAM-057'], related: [], status: '现场待确认', page: 'diagnosis',
+      duration: dropoutWindows.reduce((sum,w) => sum + w.episodes.reduce((s,r) => s + r.seconds, 0), 0) + '秒（累计）',
+      summary: '两个历史时段均有短时视频中断，到场时设备已恢复在线。',
+      candidate: '分时段核对机柜供电、通信端口与视频中断顺序', score: null, traceWindows: dropoutWindows
     },
     {
       id: 'EV-1119-07', name: 'K8路段气象检测器数据中断', cat: 'monitor', type: '设备离线',
@@ -558,8 +585,8 @@
     { key: 'integrity', name: '数据完整率', unit: '%', baseline: 82.3, current: 98.1, better: 'up', def: '有效数据点数 / 预期数据点数', src: '数据质量校验模块', trend: [82.3, 88.6, 92.4, 95.1, 97.2, 98.1] },
     { key: 'locate', name: '平均故障定位时间', unit: '小时', baseline: 6.8, current: 1.9, better: 'down', def: '根因确认时间 − 首次异常发现时间（已验证案例均值）', src: '诊断事件·现场确认记录', trend: [6.8, 5.2, 3.8, 2.9, 2.3, 1.9] },
     { key: 'accuracy', name: '根因诊断准确率', unit: '%', baseline: null, current: 78.6, better: 'up', def: '现场确认正确的诊断案例数 / 已验证诊断案例数（样本28例）', src: '诊断事件·验证状态', trend: [null, null, 64.3, 70.8, 75.0, 78.6] },
-    { key: 'mileage', name: '单位任务行驶里程', unit: 'km/任务', baseline: 46.2, current: 27.5, better: 'down', def: '运维车辆总里程 / 完成的现场任务数', src: '任务统筹·车辆记录（模拟）', trend: [46.2, 41.8, 36.5, 32.1, 29.4, 27.5] },
-    { key: 'perTrip', name: '单次出车任务量', unit: '任务/次', baseline: 1.2, current: 2.6, better: 'up', def: '单次出车完成任务数的平均值', src: '任务统筹·任务包记录（模拟）', trend: [1.2, 1.5, 1.8, 2.1, 2.4, 2.6] },
+    { key: 'mileage', name: '单位任务行驶里程', unit: 'km/任务', baseline: 46.2, current: 27.5, better: 'down', def: '运维车辆总里程 / 完成的现场任务数', src: '任务统筹·车辆记录', trend: [46.2, 41.8, 36.5, 32.1, 29.4, 27.5] },
+    { key: 'perTrip', name: '单次出车任务量', unit: '任务/次', baseline: 1.2, current: 2.6, better: 'up', def: '单次出车完成任务数的平均值', src: '任务统筹·任务包记录', trend: [1.2, 1.5, 1.8, 2.1, 2.4, 2.6] },
     { key: 'energy', name: '单位工况能耗', unit: 'kWh/千车·km', baseline: 3.42, current: 3.05, better: 'down', def: '按交通量、环境参数与运行时长归一化后的隧道机电能耗', src: '能耗记录·工况归一化', trend: [3.42, 3.36, 3.24, 3.16, 3.09, 3.05] },
     { key: 'cost', name: '设备年均运维成本', unit: '万元/百台', baseline: 18.6, current: 16.2, better: 'down', def: '设备相关维修、备件、服务和现场作业成本 / 设备年数', src: '成本记录（统计口径）', trend: [18.6, 18.1, 17.5, 17.0, 16.6, 16.2] }
   ];

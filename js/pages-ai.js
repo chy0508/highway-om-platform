@@ -23,14 +23,14 @@
     off.forEach(d => { byCat[d.cat] = (byCat[d.cat] || 0) + 1; });
     const hero = off.filter(d => /^CAM-0[1-4]$/.test(d.code));
     return {
-      summary: `当前模拟台账中有 <b>${off.length}</b> 台设备离线。青岭隧道北洞事件 EV-1123-01 涉及四路摄像机，目前仍有 <b>${hero.length}</b> 路离线，事件状态为${D.events.find(e => e.id === 'EV-1123-01').status}。`,
+      summary: `当前台账中有 <b>${off.length}</b> 台设备离线。青岭隧道北洞事件 EV-1123-01 涉及四路摄像机，目前仍有 <b>${hero.length}</b> 路离线，事件状态为${D.events.find(e => e.id === 'EV-1123-01').status}。`,
       data: Object.keys(byCat).map(c => ({ label: D.CATS[c].name + '离线', value: byCat[c] + ' 台' })).concat([{ label: '离线占比', value: (off.length / D.devices.length * 100).toFixed(1) + '%' }]),
       basis: [
         `设备台账状态统计：在线 ${D.stats().online} / 异常 ${D.stats().warn} / 离线 ${off.length}。`,
         `集体离线设备：${hero.map(d => d.code + '（' + d.place + '）').join('、') || '无'}。`,
         `青岭北洞事发时的四路摄像机共用接入交换机 SW-12 与机柜 CAB-03。`
       ],
-      limits: ['离线状态来自数据快照，非真实设备实时状态。', '空间集中仅为关联线索，根因需结合拓扑与现场确认。'],
+      limits: ['离线状态按数据快照统计。', '空间集中仅为关联线索，根因需结合拓扑与现场确认。'],
       links: [{ label: '摄像机离线场景', page: 'scene-camera', params: { id: 'EV-1123-01' } }, { label: '设备关系拓扑', page: 'topology' }, { label: '设备监测·离线', page: 'devices', params: { status: 'offline' } }],
       refs: hero.map(d => d.code).concat(['SW-12', 'FIBER-07'])
     };
@@ -43,7 +43,7 @@
       basis: [
         `事发时拓扑记录为 CAM-01~04 经 SW-12 的 1 至 4 号端口上联 FIBER-07，当时端口与上联链路均报告中断。`,
         `时间对齐：4 台摄像机离线时刻高度一致，且与 SW-12 上联光功率下降同步。`,
-        `供电核查：CAB-03 输出电压/电流在离线时段无同步异常（模拟数据），故供电候选评分较低。`,
+        `供电核查：CAB-03 输出电压/电流在离线时段无同步异常，故供电候选评分较低。`,
         `光功率：FIBER-07 接收光功率较基线下降，误码率上升（DS-02 通信网管）。`
       ],
       limits: ['评分为“关联评分”，非真实故障概率。', '结论为“可能原因/建议优先检查”，未确认故障；需现场核查光链路后确认。', '关联不等于因果，供电正常不排除其他并发因素。'],
@@ -63,10 +63,10 @@
       basis: [
         `高成本设备：${top.map(d => d.name + ' ' + d.total + '万（' + d.note + '）').join('；')}。`,
         `重复维修预警：${repeat.map(d => d.name + '—' + d.note).join('；')}。`,
-        `成本结构：能源 ${cur.energy} / 备件 ${cur.parts} / 服务 ${cur.service} / 现场 ${cur.field} / 应急 ${cur.emergency}（万元，示例测算）。`,
+        `成本结构：能源 ${cur.energy} / 备件 ${cur.parts} / 服务 ${cur.service} / 现场 ${cur.field} / 应急 ${cur.emergency}（万元，方案测算）。`,
         `BAT-01 近12月单体更换3次，持续维修经济性差，建议纳入更新决策评估。`
       ],
-      limits: ['成本为统计口径示例测算，非真实财务数据。', '“偏高”为相对基线的归因分析，含模型假设。', '更新建议需结合核对性测试与现场核查，不构成采购/审批依据。'],
+      limits: ['成本为统计口径方案测算，结算以财务台账为准。', '“偏高”为相对基线的归因分析，含模型假设。', '更新建议需结合核对性测试与现场核查，不构成采购/审批依据。'],
       links: [{ label: '成本分析', page: 'cost' }, { label: 'UPS更新决策', page: 'ups' }, { label: '重点设备·BAT-01', page: 'keydev', params: { focus: 'BAT-01' } }],
       refs: top.map(d => d.code)
     };
@@ -75,15 +75,15 @@
     const fans = ['JF-01', 'JF-02', 'JF-03', 'JF-04'].map(c => D.byCode[c]).filter(Boolean);
     const rated = fans[0] ? fans[0].ratedPower : 30;
     return {
-      summary: `青岭隧道射流风机 JF-01~04（单台额定 ${rated}kW）。在正常模拟工况下，按 CO/VI 与交通量联动，<b>模拟策略评估</b>建议运行台数可由当前 4 台优化至 2~3 台，节能率为模拟工况估算（约 20%~40%），非固定承诺。`,
-      data: [{ label: '风机数量', value: fans.length + ' 台' }, { label: '单台额定', value: rated + ' kW' }, { label: '建议运行', value: '2~3 台（视工况）' }, { label: '节能率', value: '模拟估算 20%~40%' }],
+      summary: `青岭隧道射流风机 JF-01~04（单台额定 ${rated}kW）。在常规工况下，按 CO/VI 与交通量联动，<b>策略评估</b>建议运行台数可由当前 4 台优化至 2~3 台，节能率为设定工况下的估算（约 20%~40%），非固定承诺。`,
+      data: [{ label: '风机数量', value: fans.length + ' 台' }, { label: '单台额定', value: rated + ' kW' }, { label: '建议运行', value: '2~3 台（视工况）' }, { label: '节能率', value: '模型估算 20%~40%' }],
       basis: [
-        `控制逻辑：CO≥25ppm 或 VI≥35% 时全开；CO≤10 且 VI≤15 时可降至2台（模拟阈值）。`,
+        `控制逻辑：CO≥25ppm 或 VI≥35% 时全开；CO≤10 且 VI≤15 时可降至2台（评估阈值）。`,
         `工况影响： dawn/夜间交通量低，CO/VI 基线低，优化空间大；拥堵/应急工况按预案执行，不参与节能优化。`,
         `能耗按交通量、运行时长归一化，剔除交通/天气/季节影响后对比。`,
         `安全约束：保留备用风机、最小通风量、消防联动优先等6项约束。`
       ],
-      limits: ['节能率为模拟工况估算，非真实节能承诺。', '本页为模拟策略评估，不提供风机启停/下发控制按钮。', '应急工况由原控制系统按预案执行，AI不建议干预。'],
+      limits: ['节能率为设定工况下的估算，非真实节能承诺。', '本页为策略评估，不提供风机启停/下发控制按钮。', '应急工况由原控制系统按预案执行，AI不建议干预。'],
       links: [{ label: '风机优化策略', page: 'fan' }, { label: '成效评价·能耗', page: 'kpi' }],
       refs: fans.map(f => f.code)
     };
@@ -95,13 +95,13 @@
     const active = al.filter(a => a.status === 'active');
     return {
       summary: al.length
-        ? `设备 <b>${code}（${d.name}）</b> 近30天模拟数据中记录 <b>${al.length}</b> 条异常，其中未解除 <b>${active.length}</b> 条。当前状态：${D.STATUS[d.status].name}。`
-        : `设备 <b>${code}（${d.name}）</b> 近30天模拟数据中<b>未记录异常</b>，当前状态：${D.STATUS[d.status].name}。数据不足以支持进一步故障判断。`,
+        ? `设备 <b>${code}（${d.name}）</b> 近30天台账中记录 <b>${al.length}</b> 条异常，其中未解除 <b>${active.length}</b> 条。当前状态：${D.STATUS[d.status].name}。`
+        : `设备 <b>${code}（${d.name}）</b> 近30天台账中<b>未记录异常</b>，当前状态：${D.STATUS[d.status].name}。数据不足以支持进一步故障判断。`,
       data: [{ label: '设备状态', value: D.STATUS[d.status].name }, { label: '近30天异常', value: al.length + ' 条' }, { label: '未解除', value: active.length + ' 条' }, { label: '重要性', value: d.importance }],
       basis: al.length
         ? al.slice(0, 6).map(a => `${D.fmtTime(a.start, 'md')} ${D.LEVELS[a.level] || a.level}：${a.desc}（${a.status === 'active' ? '未解除' : '已恢复'}）`)
         : ['台账与告警库近30天无该设备异常记录。', '无异常不代表无隐患，建议结合参数趋势与现场巡检。'],
-      limits: ['异常记录来自模拟数据，非真实设备历史。', '无数据时不做推断；状态判断仅基于现有数据快照。'],
+      limits: ['异常记录取自内置设备台账。', '无数据时不做推断；状态判断仅基于现有数据快照。'],
       links: [{ label: '设备档案', code }, { label: '重点设备分析', page: 'keydev', params: { focus: code } }, { label: '孪生定位', page: 'gis', params: { focus: code } }],
       refs: [code]
     };
@@ -113,29 +113,29 @@
       summary: `诊断事件 <b>${e.id}（${e.name}）</b>，级别 ${e.level}，状态 ${e.status}，影响 ${e.affected.length} 台设备。${e.summary || ''}`,
       data: [{ label: '事件级别', value: e.level }, { label: '影响设备', value: e.affected.length + ' 台' }, { label: '关联评分', value: e.score != null ? e.score + '' : '—' }, { label: '状态', value: e.status }],
       basis: [`候选故障源：${e.candidate || '见诊断页'}。`, `发生位置：${e.place}（${e.km}）。`, `关联设备：${e.related.slice(0, 6).join('、')}。`],
-      limits: ['事件与评分为模拟数据，关联非确认因果。', '处置结论以诊断页与现场确认为准。'],
+      limits: ['事件评分反映关联程度，故障原因需现场核查。', '处置结论以诊断页与现场确认为准。'],
       links: [{ label: '查看诊断详情', page: e.page, params: { id: e.id } }],
       refs: e.affected.slice(0, 4).concat(e.related.slice(0, 3))
     };
   }
   /* ---------- 页面上下文问答（全局小机器人复用） ---------- */
   const A = (summary, data, basis, limits, links, refs) => ({ summary, data, basis, limits, links, refs });
-  const LIM = ['以上为内置模拟数据分析，非真实系统结论。', '关联不等于因果；结论需现场核查确认。'];
+  const LIM = ['分析依据为当前数据集。', '关联不等于因果；结论需现场核查确认。'];
   function dashboardAnswer() {
     const s = D.stats();
     const major = D.events.filter(D.isOpenMajor).length;
     const cm = D.costMonthly[D.costMonthly.length - 1];
-    return A(`当前运行态势：纳管 <b>${s.total.toLocaleString()}</b> 台设备，在线 <b>${s.online.toLocaleString()}</b> 台（在线率 ${s.onlineRate.toFixed(2)}%），异常 ${s.warn} 台、离线 ${s.offline} 台；近24小时告警 <b>${D.recentAlarms.length}</b> 条，未解除严重事件 <b>${major}</b> 起。本月运维成本示例测算 <b>${(cm.energy + cm.parts + cm.service + cm.field + cm.emergency).toFixed(1)} 万元</b>。`,
+    return A(`当前运行态势：纳管 <b>${s.total.toLocaleString()}</b> 台设备，在线 <b>${s.online.toLocaleString()}</b> 台（在线率 ${s.onlineRate.toFixed(2)}%），异常 ${s.warn} 台、离线 ${s.offline} 台；近24小时告警 <b>${D.recentAlarms.length}</b> 条，未解除严重事件 <b>${major}</b> 起。本月运维成本方案测算 <b>${(cm.energy + cm.parts + cm.service + cm.field + cm.emergency).toFixed(1)} 万元</b>。`,
       [{ label: '在线率', value: s.onlineRate.toFixed(2) + '%' }, { label: '异常/离线', value: s.warn + ' / ' + s.offline }, { label: '近24小时告警', value: D.recentAlarms.length + ' 条' }, { label: '未解除严重', value: major + ' 起' }],
-      ['设备状态为数据快照统计（在线 ' + s.online + ' / 异常 ' + s.warn + ' / 离线 ' + s.offline + '）。', '未解除严重事件按当前现场核验结果统计。', '成本为统计口径示例测算，能源费用占比最高。'],
-      LIM.concat(['态势数据不连接真实设备与业主系统。']),
+      ['设备状态为数据快照统计（在线 ' + s.online + ' / 异常 ' + s.warn + ' / 离线 ' + s.offline + '）。', '未解除严重事件按当前现场核验结果统计。', '成本为统计口径方案测算，能源费用占比最高。'],
+      LIM.concat(['态势指标按当前数据快照统计。']),
       [{ label: '设备监测', page: 'devices' }, { label: '诊断中心', page: 'diagnosis' }, { label: '成本分析', page: 'cost' }], []);
   }
   function gisAnswer() {
-    return A(`数字孪生一张图提供四级视角：<b>宏观路网</b>（全线 58km、${D.TUNNELS.length} 座隧道、${D.TOLLS.length} 处收费站、${D.ROOMS.length} 处机房）→ <b>重点路段</b>（情报板/摄像机/车流光轨）→ <b>隧道洞内</b>（射流风机/照明分区/CO·VI）→ <b>机房</b>（机柜/UPS/精密空调/动环）。点击宏观热区即可下钻，控制台可调节昼夜/车流/图层与机房模拟参数（仅评估、不下发）。`,
+    return A(`数字孪生一张图提供四级视角：<b>宏观路网</b>（全线 58km、${D.TUNNELS.length} 座隧道、${D.TOLLS.length} 处收费站、${D.ROOMS.length} 处机房）→ <b>重点路段</b>（情报板/摄像机/车流光轨）→ <b>隧道洞内</b>（射流风机/照明分区/CO·VI）→ <b>机房</b>（机柜/UPS/精密空调/动环）。点击宏观热区即可下钻，控制台可调节昼夜/车流/图层与机房工况参数（仅评估、不下发）。`,
       [{ label: '隧道', value: D.TUNNELS.length + ' 座' }, { label: '收费站', value: D.TOLLS.length + ' 处' }, { label: '机房', value: D.ROOMS.length + ' 处' }, { label: '孪生视角', value: '4 级' }],
       ['宏观路网热区：隧道/路段/机房均可点击下钻（交互）。', '隧道孪生映射 JF-01~04 风机与 Z-01~06 照明分区状态。', '机房孪生映射动环温度/UPS 负载/电池健康度，并给出预警推算。'],
-      LIM.concat(['孪生场景为示意建模，非真实 BIM 竣工模型。']),
+      LIM.concat(['孪生场景为采用模型坐标，工程定位以竣工图为准。']),
       [{ label: '进入数字孪生', page: 'gis' }, { label: '机房孪生', page: 'gis', params: { mode: 'room', scene: 'MR-01' } }], []);
   }
   function devicesAnswer() {
@@ -150,10 +150,10 @@
   function sourcesAnswer() {
     const hits = D.qualityIssues.reduce((x, q) => x + q.hits, 0);
     const top = D.qualityIssues.slice().sort((a, b) => b.hits - a.hits)[0];
-    return A(`共 <b>${D.sources.length}</b> 个数据源（模拟接入），字段映射 ${D.fieldMappings.length} 条；数据质量规则累计命中 <b>${hits}</b> 次，命中最多的是 <b>${top.rule}</b>（${top.hits} 次）。质量命中仅标记与提示治理，不代表真实系统故障。`,
+    return A(`共 <b>${D.sources.length}</b> 个数据源，字段映射 ${D.fieldMappings.length} 条；数据质量规则累计命中 <b>${hits}</b> 次，命中最多的是 <b>${top.rule}</b>（${top.hits} 次）。质量命中仅标记与提示治理，不代表真实系统故障。`,
       [{ label: '数据源', value: D.sources.length + ' 个' }, { label: '字段映射', value: D.fieldMappings.length + ' 条' }, { label: '质量命中', value: hits + ' 次' }, { label: '最高规则', value: top.rule }],
       D.sources.map(s => `${s.id} ${s.name}：${s.status}，${s.access}，时延 ${s.latency}s。`),
-      LIM.concat(['接入状态为模拟，不连接真实厂家平台。']),
+      LIM.concat(['接入状态取自数据源记录。']),
       [{ label: '数据接入', page: 'sources' }, { label: '质量规则配置', page: 'config' }], []);
   }
   function diagnosisAnswer() {
@@ -167,42 +167,42 @@
   }
   function lightingAnswer() {
     const ev = D.events.find(e => e.page === 'scene-lighting' && /Z-03|区域/.test(e.name)) || D.events.find(e => e.page === 'scene-lighting');
-    return A(`Z-03 照明分区 <b>${ev ? ev.affected.length : 18}</b> 盏灯异常。判断树按“供电回路 → 控制链路 → 灯具本体”分层：回路电压/电流同步异常优先指向供电侧；控制指令无响应指向控制链路；单灯离散异常才考虑灯具本体。当前模拟数据支持<b>供电/控制侧共性因素</b>为优先检查方向，非已确认故障。`,
+    return A(`Z-03 照明分区 <b>${ev ? ev.affected.length : 18}</b> 盏灯异常。判断树按“供电回路 → 控制链路 → 灯具本体”分层：回路电压/电流同步异常优先指向供电侧；控制指令无响应指向控制链路；单灯离散异常才考虑灯具本体。当前数据集支持<b>供电/控制侧共性因素</b>为优先检查方向，非已确认故障。`,
       [{ label: '异常灯具', value: (ev ? ev.affected.length : 18) + ' 盏' }, { label: '分区', value: 'Z-03' }, { label: '检查顺序', value: '供电→控制→灯具' }, { label: '事件状态', value: ev ? ev.status : '现场待确认' }],
       ['分层检查可减少盲目排查：先共性回路、再控制链路、最后单灯。', '事件 ' + (ev ? ev.id : '') + ' 状态为“' + (ev ? ev.status : '') + '”，需现场确认。'],
       LIM.concat(['判断树输出为建议优先检查顺序，非确认结论。']),
       [{ label: '照明异常场景', page: 'scene-lighting' }, { label: '照明调光优化', page: 'light' }], ev ? ev.affected.slice(0, 4) : []);
   }
   function lightAnswer() {
-    return A(`隧道照明调光为<b>模拟策略评估</b>：以洞外亮度 L20 与交通量为输入，对入口/过渡/中间/出口分区给出亮度方案。模拟工况下模拟节能估算约 <b>20%~35%</b>（随洞外亮度与车流变化），非固定节能承诺；方案可保存为本地方案，不提供调光下发。`,
-      [{ label: '调光分区', value: '6 区' }, { label: '输入', value: 'L20 + 交通量' }, { label: '节能估算', value: '模拟 20%~35%' }, { label: '下发能力', value: '无（仅评估）' }],
-      ['洞外亮度越高，入口段加强照明需求越大，节能空间相应变化。', '夜间/低车流工况中间段可降档，保留安全最小亮度。', '节能率为模拟工况估算，剔除交通/天气影响后对比。'],
+    return A(`隧道照明调光为<b>策略评估</b>：以洞外亮度 L20 与交通量为输入，对入口/过渡/中间/出口分区给出亮度方案。设定工况下节能估算约 <b>20%~35%</b>（随洞外亮度与车流变化），非固定节能承诺；方案可保存为本地方案，不提供调光下发。`,
+      [{ label: '调光分区', value: '6 区' }, { label: '输入', value: 'L20 + 交通量' }, { label: '节能估算', value: '预计 20%~35%' }, { label: '下发能力', value: '无（仅评估）' }],
+      ['洞外亮度越高，入口段加强照明需求越大，节能空间相应变化。', '夜间/低车流工况中间段可降档，保留安全最小亮度。', '节能率为设定工况下的估算，剔除交通/天气影响后对比。'],
       LIM.concat(['本页不提供“立即下发调光”等真实控制操作。']),
       [{ label: '照明调光', page: 'light' }, { label: '成效评价', page: 'kpi' }], []);
   }
   function tasksAnswer() {
     const groups = {};
     D.tasks.forEach(t => { groups[t.group] = (groups[t.group] || 0) + 1; });
-    return A(`当前 <b>${D.tasks.length}</b> 项现场任务、<b>${D.teams.length}</b> 支班组。按“同隧道/同专业 + 排班窗口”组合为 ${Object.keys(groups).length} 个作业组，可减少重复上路与趟次；组合前校验资质/仪器/作业窗口，不满足则提示拆组。里程与趟次对比为示例测算。`,
+    return A(`当前 <b>${D.tasks.length}</b> 项现场任务、<b>${D.teams.length}</b> 支班组。按“同隧道/同专业 + 排班窗口”组合为 ${Object.keys(groups).length} 个作业组，可减少重复上路与趟次；组合前校验资质/仪器/作业窗口，不满足则提示拆组。里程与趟次对比为方案测算。`,
       [{ label: '任务', value: D.tasks.length + ' 项' }, { label: '班组', value: D.teams.length + ' 支' }, { label: '作业组', value: Object.keys(groups).length + ' 组' }, { label: '校验', value: '资质/仪器/窗口' }],
       D.tasks.slice(0, 5).map(t => `${t.id} ${t.type}（${t.tunnel}）：${t.window}，需 ${t.skill}。`),
-      LIM.concat(['组合与里程对比为示例测算，非真实派工。']),
+      LIM.concat(['组合与里程对比为方案测算，非真实派工。']),
       [{ label: '任务统筹', page: 'tasks' }], []);
   }
   function upsAnswer() {
     const bad = D.cells.filter(c => c.capacity < 80).length;
     const avg = (D.cells.reduce((x, c) => x + c.capacity, 0) / D.cells.length).toFixed(1);
-    return A(`UPS 蓄电池组共 <b>${D.cells.length}</b> 节单体，平均健康度 <b>${avg}%</b>，低于 80% 的 <b>${bad}</b> 节；BAT-01 近 12 月单体更换 3 次，重复维修经济性差。四方案全生命周期成本<b>示例测算</b>结合健康度离散度、重复维修与成本综合推荐，而非仅按使用年限；推荐结论需核对性测试与现场核查确认。`,
+    return A(`UPS 蓄电池组共 <b>${D.cells.length}</b> 节单体，平均健康度 <b>${avg}%</b>，低于 80% 的 <b>${bad}</b> 节；BAT-01 近 12 月单体更换 3 次，重复维修经济性差。四方案全生命周期成本<b>方案测算</b>结合健康度离散度、重复维修与成本综合推荐，而非仅按使用年限；推荐结论需核对性测试与现场核查确认。`,
       [{ label: '单体数', value: D.cells.length + ' 节' }, { label: '平均健康度', value: avg + '%' }, { label: '健康度<80%', value: bad + ' 节' }, { label: '重复维修', value: 'BAT-01 · 3次/12月' }],
-      ['健康度离散度大提示组内一致性差，整组更新经济性可能优于持续单体更换。', '四方案 LCC 含采购/施工/停机风险/残值假设（示例测算）。', '事件 EV-1121-03 记录电池健康度离散告警。'],
+      ['健康度离散度大提示组内一致性差，整组更新经济性可能优于持续单体更换。', '四方案 LCC 含采购/施工/停机风险/残值假设（方案测算）。', '事件 EV-1121-03 记录电池健康度离散告警。'],
       LIM.concat(['不构成采购/审批依据；无真实下发操作。']),
       [{ label: 'UPS更新决策', page: 'ups' }, { label: '重点设备·BAT-01', page: 'keydev', params: { focus: 'BAT-01' } }], ['BAT-01', 'UPS-01']);
   }
   function kpiAnswer() {
-    return A(`成效评价共 <b>${D.kpis.length}</b> 项指标（统计口径），覆盖诊断时效、排查效率、能耗、成本与作业统筹等。能耗类成效按交通量/运行时长/天气归一化后对比，节能率为<b>模拟工况估算</b>；所有指标标注统计口径，非真实考核数据。`,
+    return A(`成效评价共 <b>${D.kpis.length}</b> 项指标（统计口径），覆盖诊断时效、排查效率、能耗、成本与作业统筹等。能耗类成效按交通量/运行时长/天气归一化后对比，节能率为<b>设定工况下的估算</b>；各指标均附统计口径，供成效测算使用。`,
       D.kpis.slice(0, 4).map(k => ({ label: k.name, value: k.current + (k.unit || '') })),
       D.kpis.slice(0, 6).map(k => `${k.name}：基线 ${k.baseline == null ? '—' : k.baseline} → 当前 ${k.current}${k.unit || ''}（${k.src}，统计口径）。`),
-      LIM.concat(['成效为模拟估算与统计，非承诺值。']),
+      LIM.concat(['成效为模型估算与统计，非承诺值。']),
       [{ label: '成效评价', page: 'kpi' }], []);
   }
   function topoAnswer() {
@@ -215,10 +215,10 @@
   function roomAnswer() {
     const roomDevs = D.devices.filter(d => d.cat === 'room');
     const off = roomDevs.filter(d => d.status === 'offline').length;
-    return A(`内场机房共 <b>${D.ROOMS.length}</b> 处、<b>${roomDevs.length}</b> 台设备，离线 ${off} 台。机房孪生实时映射动环温度/湿度、UPS 负载、电池健康度、PUE 与机柜负载；模拟调控（空调设定/负载/照明/气流/热力图）<b>仅评估、不下发</b>；预警预测含温度超阈时间、电池容量到期、滤网堵塞与 CPU 趋势推算。`,
+    return A(`内场机房共 <b>${D.ROOMS.length}</b> 处、<b>${roomDevs.length}</b> 台设备，离线 ${off} 台。机房孪生实时映射动环温度/湿度、UPS 负载、电池健康度、PUE 与机柜负载；工况试算（空调设定/负载/照明/气流/热力图）<b>仅评估、不下发</b>；预警预测含温度超阈时间、电池容量到期、滤网堵塞与 CPU 趋势推算。`,
       [{ label: '机房', value: D.ROOMS.length + ' 处' }, { label: '机房设备', value: roomDevs.length + ' 台' }, { label: '离线', value: off + ' 台' }, { label: '调控边界', value: '仅评估不下发' }],
       D.ROOMS.map(r => `${r.id} ${r.name}（${D.kmText(r.km)}）。`),
-      LIM.concat(['映射指标为模拟遥测，非真实动环系统。']),
+      LIM.concat(['动环指标依据内置测点数据计算。']),
       [{ label: '机房孪生', page: 'gis', params: { mode: 'room', scene: 'MR-01' } }, { label: 'UPS更新决策', page: 'ups' }], ['UPS-01', 'BAT-01', 'ENV-01']);
   }
   function configAnswer() {
@@ -258,6 +258,9 @@
 
   function answer(q, ctx) {
     const s = (q || '').trim();
+    if (/^(你好啊?|您好|在吗|hi|hello)[！!。？?\s]*$/i.test(s)) {
+      return A('你好！当前是本地分析模式。你可以查询设备状态、告警或现场任务。', [], [], [], [], []);
+    }
     const codeM = s.match(/\b([A-Z]{2,4}-?\d{1,3}(?:-\d{1,2})?)\b/);
     const evM = s.match(/EV-\d{4}-\d{2}/);
     if (evM) { const a = eventAnswer(evM[0]); if (a) return a; }
@@ -283,8 +286,8 @@
     if (ctx && ctx.device && /异常|故障|近30天|历史/.test(s)) return deviceAnswer(ctx.device);
     if (ctx && ctx.page && PAGE_ANSWER[ctx.page]) return PAGE_ANSWER[ctx.page]();
     return {
-      summary: '当前模拟数据未覆盖该问题，<b>无法给出判断</b>。可尝试下方预设问题，或输入设备编码（如 CAM-01、BAT-01、JF-01）/ 事件编号（如 EV-1123-01）查询。',
-      data: [], basis: ['AI 仅基于本原型内置模拟数据作答，不联网、不接入真实系统。', '未匹配到相关数据时不做推断或编造。'],
+      summary: '当前数据集未覆盖该问题，<b>无法给出判断</b>。可尝试下方预设问题，或输入设备编码（如 CAM-01、BAT-01、JF-01）/ 事件编号（如 EV-1123-01）查询。',
+      data: [], basis: ['AI 依据内置数据集在本地分析。', '未匹配到相关数据时不做推断或编造。'],
       limits: ['不提供设备控制、审批或外部操作。', '无数据即说明无法判断，不将关联当因果。'],
       links: [], refs: []
     };
@@ -298,13 +301,13 @@
       let lastRefs = [];
       const initialQ = params.q || (ctx.device ? '这台设备近30天有哪些异常？' : null);
       el.innerHTML = U.pageHead('AI辅助分析 · 运维数据问答',
-        '基于本原型内置模拟数据的辅助分析问答。回答含结论摘要、关键数据、分析依据、限制条件与跳转链接；仅就现有数据作答，无数据则说明无法判断，不将关联当因果，不提供控制/审批/外部操作。',
+        '基于内置数据集的辅助分析问答。回答含结论摘要、关键数据、分析依据、限制条件与跳转链接；仅就现有数据作答，无数据则说明无法判断，不将关联当因果，不提供控制/审批/外部操作。',
         `<button class="btn" id="ai-reset">${U.icon('reset', 14)} 重置对话</button>
-         <button class="btn" id="ai-limit">${U.icon('warn', 14)} 使用限制说明</button>`, U.demoBadge('模拟数据')) +
+         <button class="btn" id="ai-limit">${U.icon('warn', 14)} 使用限制说明</button>`, U.demoBadge()) +
         `<div class="flex">
           <div class="grow">
             <div class="card" style="display:flex;flex-direction:column;height:660px">
-              <div class="card-h"><span class="card-t">分析对话</span><span class="sub">仅基于模拟数据</span><span class="spacer"></span>${U.demoBadge()}</div>
+              <div class="card-h"><span class="card-t">分析对话</span><span class="sub">依据当前数据集</span><span class="spacer"></span>${U.demoBadge()}</div>
               <div class="card-b" id="ai-thread" style="flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:14px"></div>
               <div style="border-top:1px solid var(--line);padding:10px 14px">
                 <div class="chip-row mb" id="ai-presets">${PRESETS.map((p, i) => `<span class="ref-chip" data-preset="${i}" style="cursor:pointer">${p.q}</span>`).join('')}</div>
@@ -322,7 +325,7 @@
               <div class="card-b" id="ai-ctx"></div></div>
             <div class="card mt"><div class="card-h"><span class="card-t">使用边界</span></div>
               <div class="card-b"><div class="note-box gray" style="margin:0">
-                <div class="small" style="line-height:1.8">${window.PersonalQwen ? '· 千问云端分析相关演示数据' : '· 仅基于内置模拟数据，不联网'}<br>· 无数据 → 说明无法判断<br>· 关联 ≠ 因果，评分为关联评分<br>· 不提供控制/审批/外部操作<br>· 结论需现场核查确认</div>
+                <div class="small" style="line-height:1.8">${window.PersonalQwen ? '· 千问云端分析相关业务数据' : '· 仅基于内置数据集，不联网'}<br>· 无数据 → 说明无法判断<br>· 关联 ≠ 因果，评分为关联评分<br>· 不提供控制/审批/外部操作<br>· 结论需现场核查确认</div>
               </div></div></div>
           </div>
         </div>`;
@@ -365,7 +368,7 @@
           ? `<button class="btn sm" onclick="UI.openDevice('${l.code}')">${U.icon('dev', 12)} ${l.label}</button>`
           : `<button class="btn sm" onclick="UI.go('${l.page}'${l.params ? ',' + JSON.stringify(l.params).replace(/"/g, '&quot;') : ''})">${U.icon('link', 12)} ${l.label}</button>`).join('');
         wrap.innerHTML = `<div class="card" style="margin:0;border-color:#cfe0f5">
-          <div class="card-h" style="background:#f0f6ff"><span class="card-t" style="font-size:12.5px">${U.icon('ai', 14)} 分析结论</span><span class="spacer"></span>${U.demoBadge('模拟数据')}</div>
+          <div class="card-h" style="background:#f0f6ff"><span class="card-t" style="font-size:12.5px">${U.icon('ai', 14)} 分析结论</span><span class="spacer"></span>${U.demoBadge()}</div>
           <div class="card-b">
             <p style="font-size:13px;line-height:1.8;color:var(--text);margin:0 0 10px">${a.summary}</p>
             ${a.data.length ? `<div class="grid g-4 mb" style="gap:7px">${a.data.map(x => `<div class="dp-kpi" style="background:#f6f8fa;border-color:var(--line)"><div class="l" style="color:var(--text-3)">${x.label}</div><div class="v" style="font-size:15px;color:var(--navy-800)">${x.value}</div></div>`).join('')}</div>` : ''}
@@ -393,14 +396,14 @@
       function welcome() {
         if (window.PersonalQwen) {
           PersonalQwen.reset(thread, el.querySelector('#ai-send'));
-          thread.innerHTML = '<div class="note-box blue"><b>千问运维助手</b><p>提问和相关演示数据将发送至阿里云。可以查询设备、事件和现场任务。</p></div>';
+          thread.innerHTML = '<div class="note-box blue"><b>千问运维助手</b><p>提问和相关业务数据将发送至阿里云。可以查询设备、事件和现场任务。</p></div>';
           drawRefs([]);
           return;
         }
         thread.innerHTML = '';
         const w = document.createElement('div');
         w.style.cssText = 'align-self:flex-start;max-width:92%';
-        w.innerHTML = `<div class="note-box blue" style="margin:0"><b>${U.icon('ai', 14)} 运维分析助手</b><div class="small mt" style="line-height:1.8">我可以基于本原型的模拟数据回答离线排查、诊断关联、成本归因、节能评估等问题，也可查询指定设备/事件。请选择下方预设问题，或直接输入。<br><span class="muted">所有回答均为模拟数据分析，非真实系统结论。</span></div></div>`;
+        w.innerHTML = `<div class="note-box blue" style="margin:0"><b>${U.icon('ai', 14)} 运维分析助手</b><div class="small mt" style="line-height:1.8">可根据平台数据查询离线排查、诊断关联、成本归因、节能评估等问题，也可查询指定设备/事件。请选择下方预设问题，或直接输入。<br><span class="muted">结论依据当前数据集生成。</span></div></div>`;
         thread.appendChild(w);
         drawRefs([]);
       }
@@ -411,13 +414,13 @@
       el.querySelector('#ai-reset').addEventListener('click', () => { welcome(); U.toast('对话已重置', 'ok'); });
       el.querySelector('#ai-limit').addEventListener('click', () => {
         U.modal('AI辅助分析 · 使用限制说明', `
-          <div class="note-box blue mb">${window.PersonalQwen ? '本机通过千问个人会话分析平台演示数据。' : '本功能为辅助分析问答，仅基于内置模拟数据，不接入真实系统、不联网。'}</div>
-          <div class="kv"><span class="k">数据范围</span><span class="v">设备台账/告警/诊断事件/成本/任务/成效等模拟数据</span>
+          <div class="note-box blue mb">${window.PersonalQwen ? '本机通过千问个人会话分析平台数据。' : '本功能为辅助分析问答，依据内置数据集在本地分析。'}</div>
+          <div class="kv"><span class="k">数据范围</span><span class="v">设备台账/告警/诊断事件/成本/任务/成效等业务数据</span>
           <span class="k">作答原则</span><span class="v">仅就现有数据作答；无数据则说明无法判断，不编造</span>
           <span class="k">因果边界</span><span class="v">关联不等于因果；评分为“关联评分”，非真实概率</span>
           <span class="k">措辞规范</span><span class="v">可能原因/故障源候选/建议优先检查；非“已确认故障”</span>
           <span class="k">操作边界</span><span class="v">不提供设备控制、审批、下发或任何外部操作</span>
-          <span class="k">结论效力</span><span class="v">模拟分析，需现场核查确认，不构成处置/采购依据</span></div>`,
+          <span class="k">结论效力</span><span class="v">辅助分析，需现场核查确认，不构成处置/采购依据</span></div>`,
           `<button class="btn" onclick="UI.closeModal()">关闭</button>`);
       });
       if (initialQ) setTimeout(() => ask(initialQ), 60);
@@ -449,9 +452,9 @@
       }
       function filtered() { return tab === 'all' ? cfgList() : cfgList().filter(c => c.type === tab); }
       el.innerHTML = U.pageHead('基础配置 · 编码/映射/关系/质量规则',
-        '管理统一设备编码、类别字典、厂家编码映射、数据源字段映射、设备关系与数据质量规则。本页为本地配置，编辑仅保存于浏览器本地（localStorage），无审批流程，不影响真实系统。',
+        '管理统一设备编码、类别字典、厂家编码映射、数据源字段映射、设备关系与数据质量规则。平台采用内置数据集，配置修改保存在当前浏览器。',
         `<button class="btn" id="cfg-add">${U.icon('cfg', 14)} 新增配置项</button>
-         <button class="btn" id="cfg-reset">${U.icon('reset', 14)} 恢复默认配置</button>`, U.demoBadge('模拟数据')) +
+         <button class="btn" id="cfg-reset">${U.icon('reset', 14)} 恢复默认配置</button>`, U.demoBadge()) +
         `<div class="card mb"><div class="card-b">
           <div class="filter-bar" style="margin:0">
             <span class="fld" style="font-weight:600;color:var(--navy-800)">配置类别</span>

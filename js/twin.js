@@ -588,7 +588,7 @@
       screen2.userData = { kind: 'device', code: 'VMS-02', name: '情报板 VMS-02（门架式）' };
       this.pickables.push(screen, screen2);
       this.regEquip('vms', vmsGrp);
-      this.addLabel('情报板 VMS-01/02', '#39ff8e', '门架式 · 模拟发布内容', -40, 12, 0, 5);
+      this.addLabel('情报板 VMS-01/02', '#39ff8e', '门架式 · 信息板内容预览', -40, 12, 0, 5);
       // 摄像机门架 + 立杆
       const camGrp = new THREE.Group();
       [-12, 12].forEach(z => { const post = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.4, 7, 8), gantryMat); post.position.set(20, 3.5, z); camGrp.add(post); });
@@ -622,7 +622,7 @@
       // 车流光轨（头灯暖白/尾灯青绿）
       this.buildTrails(lanesA, lanesB, HALF);
       // 场景标签
-      this.addLabel(rs.name + ' · 路段数字孪生', '#4fd8f0', D.kmText(rs.km) + ' · ' + rs.desc + ' · 示意模型', 0, 20, 0, 8);
+      this.addLabel(rs.name + ' · 路段数字孪生', '#4fd8f0', D.kmText(rs.km) + ' · ' + rs.desc + ' · 三维模型', 0, 20, 0, 8);
       // 漂浮尘粒
       const dustGeo = new THREE.BufferGeometry(); const dp = []; const rd = D.rng('dust');
       for (let i = 0; i < 160; i++) dp.push(-HALF + rd() * L, rd() * 14, -20 + rd() * 40);
@@ -726,7 +726,7 @@
           const pl = new THREE.PointLight(0xff3030, 0.5, 26); pl.position.set(x0, 2, 0); grp.add(pl);
         }
         lightGrp.add(grp); this.zoneMeshes[z] = grp;
-        const spr = this.addLabel(z + ' ' + zoneNames[i], bad ? '#ff9d9d' : '#ffd28a', bad ? '⚠ 18盏灯具异常' : qingling ? '照明正常' : '分区示意', x0, 12.5, 0, 5.4);
+        const spr = this.addLabel(z + ' ' + zoneNames[i], bad ? '#ff9d9d' : '#ffd28a', bad ? '⚠ 18盏灯具异常' : qingling ? '照明正常' : '照明分区', x0, 12.5, 0, 5.4);
         spr.userData = zoneSelection; this.pickables.push(spr);
       });
       // 射流风机
@@ -749,11 +749,11 @@
         this.spinners.push({ obj: blades, speed: 5 + i * 0.4 });
         grp.position.set(x, 6.2, i % 2 ? 2.6 : -2.6);
         const fanCode = 'JF-0' + (i + 1);
-        grp.userData = qingling ? { kind: 'fan', code: fanCode, name: '射流风机 ' + fanCode } : { kind: 'schematic', name: '射流风机示意' };
+        grp.userData = qingling ? { kind: 'fan', code: fanCode, name: '射流风机 ' + fanCode } : { kind: 'schematic', name: '射流风机' };
         if (qingling) this.tunnelFocus.set(fanCode, x);
         fanGrp.add(grp);
         grp.traverse(o => { if (o.isMesh) { o.userData = grp.userData; this.pickables.push(o); } });
-        const fanLabel = this.addLabel(qingling ? fanCode : '射流风机', '#4fd8f0', qingling ? '运行 · 30kW' : '设备示意', x, 10.2, grp.position.z, 3.6);
+        const fanLabel = this.addLabel(qingling ? fanCode : '射流风机', '#4fd8f0', qingling ? '运行 · 30kW' : '设备模型', x, 10.2, grp.position.z, 3.6);
         fanLabel.userData = grp.userData; this.pickables.push(fanLabel);
       }
       // 按当前隧道的台账状态绘制摄像机，恢复后取消故障标记。
@@ -788,7 +788,7 @@
         box.position.set(c.x, -2.2, 8.6);
         const device = qingling && D.byCode[c.code];
         const name = c.name.replace(' ' + c.code, '');
-        box.userData = device ? { kind: 'device', code: c.code, name: c.name } : {kind:'schematic', name:name + '示意'};
+        box.userData = device ? { kind: 'device', code: c.code, name: c.name } : {kind:'schematic', name:name + '模型'};
         if (device) this.tunnelFocus.set(c.code, c.x);
         powGrp.add(box); this.pickables.push(box);
         const color = device ? D.STATUS[device.status].color : '#4fd8f0';
@@ -804,7 +804,7 @@
         niche.userData = { kind: 'schematic', name: '紧急电话/消火栓箱 ' + (i + 1) };
         powGrp.add(niche); this.pickables.push(niche);
       });
-      this.addLabel(t.name + ' · 隧道数字孪生（洞内机电）', '#4fd8f0', D.kmText(t.start) + '—' + D.kmText(t.end) + ' · 长' + t.length + 'm · 示意模型', 0, 20, 0, 7.5);
+      this.addLabel(t.name + ' · 隧道数字孪生（洞内机电）', '#4fd8f0', D.kmText(t.start) + '—' + D.kmText(t.end) + ' · 长' + t.length + 'm · 三维模型', 0, 20, 0, 7.5);
       this.buildCarsTunnel(10);
     }
     buildCars(n, zFn, y) {
@@ -1026,7 +1026,7 @@
       dustGeo.setAttribute('position', new THREE.Float32BufferAttribute(dp, 3));
       this.dust = new THREE.Points(dustGeo, new THREE.PointsMaterial({ color: 0x37e0ff, size: 0.08, transparent: true, opacity: 0.35 }));
       S.add(this.dust);
-      this.addLabel(room.name + ' · 机房数字孪生', '#19e3ff', '动环/电源/负载实时映射 · 示意模型', 0, 7.4, 0, 6);
+      this.addLabel(room.name + ' · 机房数字孪生', '#19e3ff', '动环/电源/负载实时映射 · 三维模型', 0, 7.4, 0, 6);
       this.applyRoomLight();
     }
     applyRoomLight() {
@@ -1359,7 +1359,7 @@
       }
       const note = document.createElement('div');
       note.style.cssText = 'position:absolute;top:10px;left:50%;transform:translateX(-50%);z-index:8;background:rgba(8,26,51,.9);border:1px solid #f59e0b;color:#ffd28a;font-size:11px;padding:4px 10px;border-radius:6px';
-      note.textContent = '当前环境不支持 WebGL，已切换二维示意模式';
+      note.textContent = '当前环境不支持 WebGL，已切换二维视图';
       this.fallbackEl.appendChild(note);
       Twin.map2D(this.fallbackEl, this.opts);
     }
@@ -1437,8 +1437,8 @@
       '<div class="gm-ctl"><button data-z="1" title="放大">+</button><button data-z="-1" title="缩小">−</button>' + '<button data-z="0" title="复位视图">⌂</button>' + '</div>' +
       (scoped
         ? '<div class="gm-legend"><span class="li"><i class="ln"></i>当前区间</span><span class="li"><i style="background:#35e0ff"></i>隧道</span><span class="li"><i style="background:#f2b84b"></i>设备</span><span class="li"><i style="background:#ef4444"></i>事件</span></div>'
-        : '<div class="gm-legend"><span class="li"><i class="ln"></i>示范路段路线</span><span class="li"><i style="background:#35e0ff"></i>隧道</span><span class="li"><i style="background:#a78bfa"></i>收费站</span><span class="li"><i style="background:#8fa6c4"></i>机房</span><span class="li"><i style="background:#ef4444"></i>严重事件</span></div>') +
-      '<div class="gm-attr">在线地图 © 高德 · 路线/节点为模拟映射</div>' +
+        : '<div class="gm-legend"><span class="li"><i class="ln"></i>管辖路段</span><span class="li"><i style="background:#35e0ff"></i>隧道</span><span class="li"><i style="background:#a78bfa"></i>收费站</span><span class="li"><i style="background:#8fa6c4"></i>机房</span><span class="li"><i style="background:#ef4444"></i>严重事件</span></div>') +
+      '<div class="gm-attr">在线地图 © 高德 · 路线/节点为模型映射</div>' +
       '<div class="gm-load">正在加载在线地图…</div>';
     el.appendChild(wrap);
     const tilesBox = wrap.querySelector('.gm-tiles');
@@ -1560,7 +1560,7 @@
           img.alt = '';
           img.draggable = false;
           img.src = 'https://webrd0' + ((wx + y) % 4 + 1) + '.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=8&x=' + wx + '&y=' + y + '&z=' + z;
-          img.addEventListener('load', () => { loaded++; loadNote.style.display = 'none'; if (wrap.classList.contains('gm-offline')) { wrap.classList.remove('gm-offline'); wrap.querySelector('.gm-attr').textContent = '在线地图 © 高德 · 路线/节点为模拟映射'; } });
+          img.addEventListener('load', () => { loaded++; loadNote.style.display = 'none'; if (wrap.classList.contains('gm-offline')) { wrap.classList.remove('gm-offline'); wrap.querySelector('.gm-attr').textContent = '在线地图 © 高德 · 路线/节点为模型映射'; } });
           img.addEventListener('error', () => { img.style.visibility = 'hidden'; errs++; if (!loaded && errs >= 8) fail(); });
           cache.set(key, img);
           tilesBox.appendChild(img);
