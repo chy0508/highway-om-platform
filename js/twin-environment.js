@@ -28,11 +28,14 @@
     if (twin.mode === 'macro') {
       const landscape = twin.routeLandscape?.children || [];
       const terrain = landscape.find(object => object.geometry?.getAttribute('color'));
-      const crowns = landscape.find(object => object.isInstancedMesh && object.instanceColor);
+      const crowns = [];
+      twin.routeLandscape?.traverse(object => {
+        if (object.isInstancedMesh && object.instanceColor) crowns.push(saveColorAttribute(object.instanceColor));
+      });
       return {
         terrain: saveColorAttribute(terrain?.geometry.getAttribute('color')),
         heights: terrain?.geometry.getAttribute('position'),
-        crowns: saveColorAttribute(crowns?.instanceColor)
+        crowns
       };
     }
     if (twin.mode === 'road') {
@@ -61,7 +64,7 @@
   }
 
   function applySeason(state) {
-    const { terrain, heights, crowns, ground, plants = [] } = state.surfaces;
+    const { terrain, heights, crowns = [], ground, plants = [] } = state.surfaces;
     const palette = seasons[state.season];
     const isWinter = state.season === 'winter';
     const tint = palette.land == null ? null : linear(palette.land);
@@ -81,8 +84,7 @@
       }
       attribute.needsUpdate = true;
     }
-    if (crowns) {
-      const { attribute, original } = crowns;
+    for (const { attribute, original } of crowns) {
       if (!palette.plants) attribute.array.set(original);
       else {
         const colors = palette.plants.map(linear);

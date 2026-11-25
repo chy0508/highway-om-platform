@@ -9,75 +9,9 @@
   const instances = [];
   const KM2X = km => (km - 29) * 10;
   const centerZ = x => 16 * Math.sin(x * 0.011) + 6 * Math.sin(x * 0.027 + 1.3);
-  const riverZ = x => 44 * Math.sin(x * .016 + .5) + 23 * Math.sin(x * .029);
-  const riverWidth = x => 9 + 3 * Math.cos(x * .023);
-  const tunnelRidges = D.TUNNELS.map(t => ({
-    x: KM2X((t.start + t.end) / 2), halfLength: (KM2X(t.end) - KM2X(t.start)) / 2
-  }));
-
-  // Build the landscape in the road's chainage coordinates so all asset anchors stay fixed.
-  function landHeight(x, z) {
-    const offset = z - centerZ(x);
-    const foothills = THREE.MathUtils.smoothstep(Math.abs(offset), 26, 90);
-    const crest = 1 - Math.abs(Math.sin(z * .032 + Math.sin(x * .024) + .36 * Math.sin(z * .061 - x * .037) + x * .008));
-    const relief = 29 + 19 * Math.sin(x * .026 - z * .018) + 30 * crest;
-    const detail = 4 * Math.sin(x * .13 + z * .07) + 2 * Math.cos(z * .21 - x * .15);
-    let height = -.45 + foothills * (relief + detail);
-    for (const ridge of tunnelRidges) {
-      const dx = (x - ridge.x) / ridge.halfLength;
-      const dz = (offset + 5) / 24;
-      height += 30 * Math.max(0, 1 - dx * dx - dz * dz);
-    }
-    const bank = THREE.MathUtils.smoothstep(Math.abs(z - riverZ(x)), riverWidth(x) - 2, riverWidth(x) + 6);
-    return -4 + (height + 4) * bank;
-  }
-
-  function makeRouteLandscape() {
-    const group = new THREE.Group();
-    const ground = new THREE.PlaneGeometry(1180, 670, 384, 216);
-    ground.rotateX(-Math.PI / 2);
-    const pos = ground.attributes.position;
-    for (let i = 0; i < pos.count; i++) pos.setY(i, landHeight(pos.getX(i), pos.getZ(i)));
-    ground.computeVertexNormals();
-    const grass = new THREE.Color(0x617a49).convertSRGBToLinear();
-    const rock = new THREE.Color(0xa29a85).convertSRGBToLinear();
-    const shore = new THREE.Color(0x9c906f).convertSRGBToLinear();
-    const tint = new THREE.Color(), colors = [];
-    for (let i = 0; i < pos.count; i++) {
-      const x = pos.getX(i), z = pos.getZ(i), h = pos.getY(i);
-      const slope = 1 - ground.attributes.normal.getY(i);
-      const stone = THREE.MathUtils.smoothstep(slope + h * .003, .19, .55);
-      tint.copy(grass).lerp(rock, stone);
-      if (h < -.5) tint.lerp(shore, .8);
-      tint.multiplyScalar(.93 + .08 * Math.sin(x * .4 + z * .27) + .08 * Math.cos(z * .09 - x * .17));
-      colors.push(tint.r, tint.g, tint.b);
-    }
-    ground.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
-    const loader = new THREE.TextureLoader();
-    function tileTexture(file, along, across) {
-      const texture = loader.load('assets/3d/' + file);
-      texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
-      texture.repeat.set(along, across);
-      return texture;
-    }
-    group.add(new THREE.Mesh(ground, new THREE.MeshStandardMaterial({
-      vertexColors:true, roughness:.94, map:tileTexture('network-slope-detail.png', 25, 14),
-      normalMap:tileTexture('network-rock-normal.png', 50, 28), normalScale:new THREE.Vector2(.65,.65)
-    })));
-    // A river ribbon follows the channel, including the crossings beneath the viaduct.
-    const water = new THREE.PlaneGeometry(1180, 2, 384, 1);
-    water.rotateX(-Math.PI / 2);
-    const wp = water.attributes.position;
-    for (let i = 0; i < wp.count; i++) {
-      const x = wp.getX(i);
-      wp.setXYZ(i, x, -.85, riverZ(x) + wp.getZ(i) * (riverWidth(x) + 6));
-    }
-    group.add(new THREE.Mesh(water, new THREE.MeshStandardMaterial({
-      color:new THREE.Color(0x37686c).convertSRGBToLinear(), roughness:.36, metalness:.18,
-      normalMap:tileTexture('songlan-water-normal.png', 52, 1), normalScale:new THREE.Vector2(.65,.65)
-    })));
-    return group;
-  }
+  const routeCorridor = TwinCorridor.create(centerZ, D.TUNNELS.map(t => ({
+    start: KM2X(t.start), end: KM2X(t.end)
+  })));
 
   function macroOverviewRadius(aspect) {
     // Reserve room for both endpoints at the default oblique camera angle.
@@ -256,6 +190,7 @@
       const ring = new THREE.Mesh(geo('pulse', () => new THREE.RingGeometry(1, 1.5, 32)), new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.8, side: THREE.DoubleSide, depthWrite: false }));
       ring.rotation.x = -Math.PI / 2; ring.position.set(x, y, z);
       this.scene.add(ring); this.pulses.push({ mesh: ring, t: Math.random() * 2, base: base || 4 });
+      return ring;
     }
     regEquip(key, obj) {
       if (!this.equipGroups[key]) { this.equipGroups[key] = new THREE.Group(); this.scene.add(this.equipGroups[key]); }
@@ -268,14 +203,17 @@
     buildMacro() {
       const S = this.scene;
       const r = D.rng('macro-env');
-      this.routeLandscape = makeRouteLandscape();
+      this.routeLandscape = routeCorridor.landscape(this.renderer.capabilities.getMaxAnisotropy());
       S.add(this.routeLandscape);
       this.routeGrid = new THREE.GridHelper(920, 92, 0x71869a, 0x99adbb);
       this.routeGrid.material.transparent = true;
       this.routeGrid.material.opacity = .42;
       this.routeGrid.position.y = -.5;
       S.add(this.routeGrid);
-      this.setRouteTerrain(this.opts.terrain !== false);
+      this.routeGroundAnchors = [];
+      const groundAnchor = (object, rise) => {
+        this.routeGroundAnchors.push({ object, base: object.position.y, rise });
+      };
       // 星空（夜）
       const starGeo = new THREE.BufferGeometry(); const sp = [];
       const rs = D.rng('stars');
@@ -294,8 +232,8 @@
       const m4 = new THREE.Matrix4(); const q = new THREE.Quaternion(); const sc = new THREE.Vector3(); const pv = new THREE.Vector3();
       for (let i = 0; i < hiCount; i++) {
         const x = -246 + r() * 88, z = centerZ(x) - 30 - r() * 7;
-        if (landHeight(x,z) < -.6) { i--; continue; }
-        const h = 8 + r() * 15, base = landHeight(x,z) - 1.5;
+        if (routeCorridor.height(x,z) < -.6) { i--; continue; }
+        const h = 8 + r() * 15, base = routeCorridor.height(x,z) - 1.5;
         pv.set(x, base + h / 2, z); sc.set(.65, h, .65); q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), r() * 0.4);
         m4.compose(pv, q, sc); hi.setMatrixAt(i, m4);
         pv.set(x, base + h * .55, z); sc.set(.65, h * .5, .65); m4.compose(pv, q, sc); win.setMatrixAt(i, m4);
@@ -312,91 +250,20 @@
       for (let i = 0; i < hn; i++) {
         const side = r() > 0.5 ? 1 : -1;
         const x = -280 + r() * 560, z = centerZ(x) + side * (26 + r() * 14);
-        const base = landHeight(x,z);
+        const base = routeCorridor.height(x,z);
         if (base < -.6) { i--; continue; }
         pv.set(x, base + 2.1, z); sc.set(1, 1, 1); q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), r() * Math.PI);
         m4.compose(pv, q, sc); houses.setMatrixAt(i, m4);
         pv.set(x, base + 6, z); m4.compose(pv, q, sc); roofs.setMatrixAt(i, m4);
       }
       this.routeLandscape.add(houses, roofs);
-      // 树木（实例化：树干+冠）
-      const trunkGeo = geo('trunk', () => new THREE.CylinderGeometry(0.35, 0.5, 3, 5));
-      const trunkMat = new THREE.MeshStandardMaterial({ color: 0x6b4a2f, roughness: 1 });
-      const canopyGeo = geo('macro-crown', () => new THREE.IcosahedronGeometry(1, 0));
-      const canopyMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 1, flatShading: true });
-      const tn = 1050;
-      const trunks = new THREE.InstancedMesh(trunkGeo, trunkMat, tn);
-      const canopies = new THREE.InstancedMesh(canopyGeo, canopyMat, tn);
-      for (let i = 0; i < tn; i++) {
-        const x = -290 + r() * 580, side = r() > 0.5 ? 1 : -1;
-        const z = centerZ(x) + side * (28 + r() * 150);
-        const base = landHeight(x,z);
-        if (base < -.6) { i--; continue; }
-        const s = 0.7 + r() * 0.8;
-        pv.set(x, base + 1.5 * s, z); sc.set(s, s, s); q.identity(); m4.compose(pv, q, sc); trunks.setMatrixAt(i, m4);
-        pv.set(x, base + 4 * s, z); sc.set(2.1*s, 3.7*s, 2.3*s);
-        q.setFromAxisAngle(new THREE.Vector3(0,1,0), r()*Math.PI);
-        m4.compose(pv, q, sc); canopies.setMatrixAt(i, m4);
-        canopies.setColorAt(i, new THREE.Color().setHSL(.22+r()*.07,.25+r()*.12,.16+r()*.10).convertSRGBToLinear());
-      }
-      this.routeLandscape.add(trunks, canopies);
-      // 高架桥面（沿中心线，高 y=8）+ 桥墩
-      const deckPts = [], deckIdx = []; const N = 160;
-      for (let i = 0; i <= N; i++) {
-        const x = -292 + i / N * 584, z = centerZ(x);
-        deckPts.push(x, 8, z - 5, x, 8, z + 5);
-        if (i < N) { const a = i * 2; deckIdx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
-      }
-      const dg = new THREE.BufferGeometry();
-      dg.setAttribute('position', new THREE.Float32BufferAttribute(deckPts, 3));
-      dg.setIndex(deckIdx); dg.computeVertexNormals();
-      S.add(new THREE.Mesh(dg, new THREE.MeshStandardMaterial({ color: new THREE.Color(0x4a4b4b).convertSRGBToLinear(), roughness: 0.9 })));
-      const laneMarks = [];
-      for (let x = -290; x < 290; x += 6) {
-        for (const offset of [-2.4,2.4]) laneMarks.push(new THREE.Vector3(x,8.08,centerZ(x)+offset), new THREE.Vector3(x+3,8.08,centerZ(x+3)+offset));
-      }
-      S.add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(laneMarks), new THREE.LineBasicMaterial({color:0xc6c6bc})));
-      // 桥面护栏
-      [-5, 5].forEach(off => {
-        const bp = [];
-        for (let i = 0; i <= N; i++) { const x = -292 + i / N * 584; bp.push(new THREE.Vector3(x, 8.8, centerZ(x) + off)); }
-        S.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(bp), new THREE.LineBasicMaterial({ color: 0xd8dade })));
-      });
-      // 桥墩
-      const pierGeo = geo('pier', () => new THREE.BoxGeometry(2.4, 8, 2.4));
-      const pierMat = new THREE.MeshStandardMaterial({ color: 0x9aa0a6, roughness: 0.9 });
-      const piers = new THREE.InstancedMesh(pierGeo, pierMat, 40);
-      for (let i = 0; i < 40; i++) { const x = -285 + i * 14.6; pv.set(x, 4, centerZ(x)); sc.set(1, 1, 1); q.identity(); m4.compose(pv, q, sc); piers.setMatrixAt(i, m4); }
-      S.add(piers);
-      // 蓝色拱桥（两处）
-      [(-120), (40)].forEach(ax => {
-        for (let k = 0; k < 3; k++) {
-          const arch = new THREE.Mesh(new THREE.TorusGeometry(9, 0.7, 8, 24, Math.PI), new THREE.MeshStandardMaterial({ color: 0x2f6fd0, roughness: 0.5 }));
-          arch.position.set(ax + k * 20, 8, centerZ(ax + k * 20));
-          arch.rotation.y = Math.PI / 2;
-          S.add(arch);
-        }
-      });
-      // 地面平行道路
-      const gPts = [], gIdx = [];
-      for (let i = 0; i <= N; i++) {
-        const x = -292 + i / N * 584, z = centerZ(x) + 16;
-        gPts.push(x, 0.1, z - 4, x, 0.1, z + 4);
-        if (i < N) { const a = i * 2; gIdx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
-      }
-      const gg = new THREE.BufferGeometry();
-      gg.setAttribute('position', new THREE.Float32BufferAttribute(gPts, 3));
-      gg.setIndex(gIdx); gg.computeVertexNormals();
-      S.add(new THREE.Mesh(gg, new THREE.MeshStandardMaterial({ color: 0x3a3d42, roughness: 0.95 })));
+      this.routeLandscape.add(routeCorridor.forest(D.rng('macro-forest')));
+      S.add(...routeCorridor.engineering());
       // 隧道山体 + 洞口 + 标签 + 下钻热区
       D.TUNNELS.forEach(t => {
         const cx = KM2X((t.start + t.end) / 2), cz = centerZ(cx);
         const len = (t.end - t.start) * 10;
-        [t.start, t.end].forEach(km => {
-          const x = KM2X(km), z = centerZ(x);
-          const ring = new THREE.Mesh(new THREE.TorusGeometry(5.2, 0.6, 8, 24, Math.PI), new THREE.MeshBasicMaterial({ color: t.hero ? 0x4fd8f0 : 0x2f7bff }));
-          ring.position.set(x, 8, z); ring.rotation.y = Math.PI / 2; S.add(ring);
-        });
+        S.add(routeCorridor.portal(KM2X(t.start), false), routeCorridor.portal(KM2X(t.end), true));
         const spr = this.addLabel(t.name, t.hero ? '#4fd8f0' : '#cfe0f5', D.kmText(t.start) + '—' + D.kmText(t.end) + ' · 点击进入隧道孪生', cx, 52, cz, 10);
         spr.userData = { kind: 'tunnel', code: t.id, name: t.name };
         this.pickables.push(spr);
@@ -420,36 +287,47 @@
       // 收费站
       D.TOLLS.forEach(ts => {
         const x = KM2X(ts.km), z = centerZ(x) + 16;
+        const rise = Math.max(0, routeCorridor.height(x, z));
         const grp = new THREE.Group();
-        const canopy = new THREE.Mesh(new THREE.BoxGeometry(7, 1.2, 22), new THREE.MeshStandardMaterial({ color: 0x2f6fd0, roughness: 0.6 }));
-        canopy.position.set(x, 8, z); grp.add(canopy);
+        groundAnchor(grp, rise);
+        const apron = new THREE.Mesh(new THREE.BoxGeometry(12, .3, 24), new THREE.MeshStandardMaterial({ color: 0x4a4d50, roughness: .9 }));
+        apron.position.set(x, .25, z);
+        const canopy = new THREE.Mesh(new THREE.BoxGeometry(7, .68, 22), new THREE.MeshStandardMaterial({ color: 0x58748a, roughness: 0.6 }));
+        canopy.position.set(x, 6.1, z); grp.add(apron, canopy);
         [-9, -3, 3, 9].forEach(dz => {
-          const p = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.4, 8, 6), new THREE.MeshStandardMaterial({ color: 0x9aa0a6 }));
-          p.position.set(x, 4, z + dz); grp.add(p);
+          const p = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.4, 6, 6), new THREE.MeshStandardMaterial({ color: 0x9aa0a6 }));
+          p.position.set(x, 3.1, z + dz); grp.add(p);
         });
         S.add(grp);
         const spr = this.addLabel(ts.name, '#b79df7', null, x, 16, z, 6);
+        groundAnchor(spr, rise);
         spr.userData = { kind: 'toll', code: ts.id, name: ts.name }; this.pickables.push(spr);
         const pick = new THREE.Mesh(new THREE.BoxGeometry(10, 12, 24), new THREE.MeshBasicMaterial({ visible: false }));
         pick.position.set(x, 5, z); pick.userData = { kind: 'toll', code: ts.id, name: ts.name };
+        groundAnchor(pick, rise);
         S.add(pick); this.pickables.push(pick);
       });
       // 机房
       D.ROOMS.forEach(rm => {
         const x = KM2X(rm.km), z = centerZ(x) - 20;
+        const rise = Math.max(0, routeCorridor.height(x, z));
         const b = new THREE.Mesh(new THREE.BoxGeometry(8, 7, 8), new THREE.MeshStandardMaterial({ color: 0xd8d5cc, roughness: 0.7 }));
         b.position.set(x, 3.5, z); S.add(b);
+        groundAnchor(b, rise);
         const spr = this.addLabel(rm.name, '#cfe0f5', '点击进入机房孪生', x, 12, z, 5.5);
+        groundAnchor(spr, rise);
         spr.userData = { kind: 'room', code: rm.id, name: rm.name }; this.pickables.push(spr);
         const pick = new THREE.Mesh(new THREE.BoxGeometry(10, 10, 10), new THREE.MeshBasicMaterial({ visible: false }));
         pick.position.set(x, 4, z); pick.userData = { kind: 'room', code: rm.id, name: rm.name };
+        groundAnchor(pick, rise);
         S.add(pick); this.pickables.push(pick);
-        if (rm.id === 'MR-01') this.addPulse(x, 0.2, z, 0x19e3ff, 5);
+        if (rm.id === 'MR-01') groundAnchor(this.addPulse(x, .2, z, 0x19e3ff, 5), rise);
       });
       // 桩号
       for (const km of [0, 10, 20, 30, 40, 50, D.ROAD.end]) {
         const x = KM2X(km), z = centerZ(x);
-        this.addLabel(D.kmText(km), '#5a7ba6', null, x, 1.5, z + 24, 4);
+        const label = this.addLabel(D.kmText(km), '#5a7ba6', null, x, 1.5, z + 24, 4);
+        groundAnchor(label, Math.max(0, routeCorridor.height(x, z + 24) + .5));
       }
       // 设备点位（专业图层）
       this.markerGroups = {};
@@ -493,7 +371,8 @@
         this.taskGroup.add(spr); this.pickables.push(spr);
       });
       // 高架车流
-      this.buildCars(24, x => centerZ(x), 8.7);
+      this.buildCars(24, centerZ, 8.7);
+      this.setRouteTerrain(this.opts.terrain !== false);
     }
 
     /* ================= 重点路段孪生（开放高速） ================= */
@@ -1169,6 +1048,7 @@
       if (!this.routeLandscape || !this.routeGrid) return;
       this.routeLandscape.visible = on;
       this.routeGrid.visible = !on;
+      for (const { object, base, rise } of this.routeGroundAnchors) object.position.y = base + (on ? rise : 0);
       if (this.scene.background) { this.applyTime(); this.applyFog(); }
     }
     setLayer(key, on) {
