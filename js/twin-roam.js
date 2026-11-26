@@ -31,7 +31,7 @@
         close: () => pose(-18, 2, 0, 49, -1.12, 1.29)
       },
       tunnel: {
-        overview: () => pose(0, 0, 0, fitRadius(twin, 128, 74), .65, .93),
+        overview: () => twin.detailLandscape?.visible ? twin.tunnelExteriorView() : pose(0, 0, 0, fitRadius(twin, 128, 74), .65, .93),
         top: () => pose(0, 0, 0, fitRadius(twin, 132, 95), 0, .22),
         side: () => pose(0, 1, 0, fitRadius(twin, 111, 95), .06, 1.24),
         close: () => pose(-45, -.7, 0, 25, -1.45, 1.52)

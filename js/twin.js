@@ -41,6 +41,11 @@
     { id: 'RS-QL', name: '青岭隧道外路段', km: 17.2, desc: '隧道衔接段 · 洞口情报板/车速反馈' },
     { id: 'RS-NL', name: '南岭隧道外路段', km: 30.6, desc: '长下坡衔接段 · 气象检测/摄像机' }
   ];
+  const FEATURE_NODES = [
+    { id: 'bridge', type: '桥梁', name: '青岭跨河桥', km: 22.74, offset: 23, color: '#80cff3', icon: 'road' },
+    { id: 'tunnel', type: '隧道', name: '青岭隧道', km: 18.7, offset: -28, color: '#68e2cb', icon: 'cube' },
+    { id: 'hub', type: '枢纽', name: '青龙枢纽互通', km: 8, offset: -28, color: '#ffd29b', icon: 'map' }
+  ];
 
   function labelTexture(text, color, sub, three = window.THREE) {
     const c = document.createElement('canvas');
@@ -133,6 +138,7 @@
       this.rMin = M === 'macro' ? 40 : M === 'room' ? 6 : 14; this.rMax = M === 'macro' ? Math.max(720, preset.r * 1.2) : M === 'room' ? 140 : 300;
       this.buildLights();
       if (M === 'macro') this.buildMacro(); else if (M === 'road') this.buildRoad(); else if (M === 'room') this.buildRoom(); else this.buildTunnel();
+      if (this.opts.terrain && this.detailDraftingSurface) this.setDetailTerrain(true);
       this.applyTime();
       this.applyFog();
       this.bindControls();
@@ -163,7 +169,7 @@
         this.rim.intensity = day ? 0.35 : 0.5;
         this.amb.intensity = day ? 0.5 : 0.4;
       } else if (M === 'road') {
-        this.scene.background = new THREE.Color(day ? 0x8fb8d8 : 0x050d1e);
+        this.scene.background = new THREE.Color(day ? (this.detailLandscape?.visible ? 0xb2c9da : 0x8fb8d8) : 0x050d1e);
         this.hemi.intensity = day ? 0.9 : 0.22;
         this.hemi.color.set(day ? 0xbfd9ff : 0x24406e);
         this.hemi.groundColor.set(day ? 0x6b6b60 : 0x060d18);
@@ -178,20 +184,24 @@
         this.amb.intensity = 0.55;
         if (this.roomLightLevel != null) this.applyRoomLight();
       } else {
-        this.scene.background = new THREE.Color(0x0a1424);
-        this.hemi.intensity = 0.4; this.sun.intensity = 0.25; this.amb.intensity = 0.55;
+        const outdoor = day && this.detailLandscape?.visible;
+        this.scene.background = new THREE.Color(outdoor ? 0xb2c9da : 0x0a1424);
+        this.hemi.intensity = outdoor ? 0.69 : 0.4;
+        this.sun.intensity = outdoor ? 0.8 : 0.25;
+        this.amb.intensity = 0.55;
       }
       // 夜间发光元素
       this.nightMats.forEach(m => { m.emissiveIntensity = day ? m.userData.dayI : m.userData.nightI; });
       if (this.windowMesh) this.windowMesh.visible = !day;
-      if (this.starPoints) this.starPoints.visible = !day || M !== 'macro';
+      if (this.starPoints) this.starPoints.visible = !day || (M !== 'macro' && !this.detailLandscape?.visible);
       if (this.streetHeads) this.streetHeads.forEach(h => { h.material.emissiveIntensity = day ? 0.15 : 1.6; });
       if (this.streetLights) this.streetLights.forEach(l => { l.intensity = day ? 0 : l.userData.ni; });
       this.trails.forEach(tr => { tr.mesh.material.opacity = day ? 0.5 : 0.95; });
     }
     applyFog() {
       const M = this.mode;
-      const base = M === 'macro' ? [420, 1100] : M === 'road' ? [120, 420] : M === 'room' ? [45, 150] : [90, 320];
+      const base = this.detailLandscape?.visible ? (M === 'road' ? [224, 580] : [175, 530]) :
+        M === 'macro' ? [420, 1100] : M === 'road' ? [120, 420] : M === 'room' ? [45, 150] : [90, 320];
       const f = 1.6 - this.fogAmt * 1.2; // 0→1.6(清) 1→0.4(浓)
       const col = this.scene.background;
       this.scene.fog = new THREE.Fog(col.getHex(), base[0] * f, base[1] * f);
@@ -323,6 +333,14 @@
         pick.position.set(x, 8, z); pick.userData = { kind: 'roadsec', code: rs.id, name: rs.name };
         S.add(pick); this.pickables.push(pick);
         this.routeHighlights.push(this.addPulse(x, 8.2, z, 0xffd24a, 5));
+      });
+      // Detailed node markers are independent of the overview models and drilldown areas.
+      FEATURE_NODES.forEach(node => {
+        const x = KM2X(node.km), z = centerZ(x) + node.offset;
+        const y = Math.max(28, routeCorridor.height(x, z) + 10);
+        const marker = this.addLabel(node.type + '近景', node.color, node.name + ' · ' + D.kmText(node.km), x, y, z, 8);
+        marker.userData = { kind: 'feature-node', code: node.id, name: node.name };
+        this.pickables.push(marker);
       });
       // 收费站
       D.TOLLS.forEach(ts => {
@@ -459,6 +477,7 @@
         pv.set(x, h / 2 - 6, z); sc.set(1, h, 1); q.identity(); m4.compose(pv, q, sc); bs.setMatrixAt(i, m4);
       }
       S.add(bs);
+      this.detailDraftingSurface = [ground, grid, bs];
       // 高架桥面 + 桥墩
       const deck = new THREE.Mesh(new THREE.BoxGeometry(L, 1.2, 24), new THREE.MeshStandardMaterial({ color: 0x2b2f36, roughness: 0.95 }));
       deck.position.y = -0.6; S.add(deck);
@@ -597,6 +616,7 @@
       const grid = new THREE.GridHelper(400, 40, 0x14335c, 0x0e2544);
       grid.position.y = -5.5; grid.material.transparent = true; grid.material.opacity = 0.4; S.add(grid);
       this.draftingSurface = [ground, grid];
+      this.detailDraftingSurface = this.draftingSurface;
       // 混凝土衬砌壳体（上半圆筒）
       const shell = new THREE.Mesh(new THREE.CylinderGeometry(10, 10, L, 32, 1, true, 0, Math.PI), new THREE.MeshStandardMaterial({ color: 0x8f9298, roughness: 0.9, side: THREE.BackSide }));
       shell.rotation.z = Math.PI / 2; shell.position.y = -1.5; S.add(shell);
@@ -738,7 +758,7 @@
         niche.userData = { kind: 'schematic', name: '紧急电话/消火栓箱 ' + (i + 1) };
         powGrp.add(niche); this.pickables.push(niche);
       });
-      this.addLabel(t.name + ' · 隧道数字孪生（洞内机电）', '#4fd8f0', D.kmText(t.start) + '—' + D.kmText(t.end) + ' · 长' + t.length + 'm · 三维模型', 0, 20, 0, 7.5);
+      this.tunnelTitle = this.addLabel(t.name + ' · 隧道数字孪生（洞内机电）', '#4fd8f0', D.kmText(t.start) + '—' + D.kmText(t.end) + ' · 长' + t.length + 'm · 三维模型', 0, 20, 0, 7.5);
       this.buildCarsTunnel(10);
     }
     buildCarsTunnel(n) {
@@ -1102,6 +1122,35 @@
       if (this.scene.background) { this.applyTime(); this.applyFog(); }
       this.applyStatusFilter();
     }
+    setDetailTerrain(on) {
+      if (!this.detailDraftingSurface || this.fallbackEl) return;
+      const wasOn = this.detailLandscape?.visible === true;
+      if (on && !this.detailLandscape) {
+        const anisotropy = this.renderer.capabilities.getMaxAnisotropy();
+        this.detailLandscape = window.TwinCorridor.createSectionLandscape(this.mode, this.sceneKey, anisotropy);
+        this.scene.add(this.detailLandscape);
+      }
+      if (this.detailLandscape) this.detailLandscape.visible = on;
+      this.detailDraftingSurface.forEach(surface => { surface.visible = !on; });
+      if (this.tunnelTitle) {
+        this.tunnelTitle.position.y = on ? this.detailLandscape.userData.titleHeight : 20;
+        this.labelSprites.forEach(label => { label.material.depthTest = on; });
+        if (on !== wasOn && this.tourState === 'idle') {
+          const { x, y, z } = this.targetGoal;
+          const exterior = this.tunnelExteriorView();
+          const overview = Math.abs(x) < 1 && Math.abs(y) < 1 && Math.abs(z) < 1 && this.goal.r >= 100 && this.goal.phi > .65;
+          const exteriorOverview = x === exterior.x && y === exterior.y && z === exterior.z && this.goal.phi === exterior.phi;
+          if ((on && overview) || (!on && exteriorOverview)) {
+            this.resetView();
+            if (!this.scene.background) {
+              this.target.copy(this.targetGoal);
+              Object.assign(this.sph, this.goal);
+            }
+          }
+        }
+      }
+      if (this.scene.background) { this.applyTime(); this.applyFog(); }
+    }
     setLayer(key, on) {
       this.layers[key] = on;
       if (key === 'events' && this.eventGroup) this.eventGroup.visible = on;
@@ -1197,10 +1246,16 @@
     resetView() {
       if (this.fallbackEl) { this.fallbackMap?.resetView(); return; }
       const M = this.mode;
-      const p = M === 'macro' ? { r: macroOverviewRadius(this.camera.aspect), theta: 0.5, phi: 0.94 } : M === 'road' ? { r: 120, theta: 0.35, phi: 1.12 } : M === 'room' ? { r: 16, theta: 0.02, phi: 1.5 } : { r: 120, theta: 0.85, phi: 1.05 };
-      this.targetGoal.set(0, M === 'macro' ? 4 : M === 'room' ? 1.3 : 0, M === 'room' ? -4 : 0);
-      Object.assign(this.goal, p);
+      const outsideTunnel = M === 'tunnel' && this.detailLandscape?.visible;
+      const p = outsideTunnel ? this.tunnelExteriorView() :
+        M === 'macro' ? { r: macroOverviewRadius(this.camera.aspect), theta: 0.5, phi: 0.94 } : M === 'road' ? { r: 120, theta: 0.35, phi: 1.12 } : M === 'room' ? { r: 16, theta: 0.02, phi: 1.5 } : { r: 120, theta: 0.85, phi: 1.05 };
+      this.targetGoal.set(outsideTunnel ? p.x : 0, outsideTunnel ? p.y : M === 'macro' ? 4 : M === 'room' ? 1.3 : 0, M === 'room' ? -4 : 0);
+      Object.assign(this.goal, { r: p.r, theta: p.theta, phi: p.phi });
       this.lastInteract = performance.now();
+    }
+    tunnelExteriorView() {
+      const aspect = Math.max(.5, this.camera.aspect);
+      return { x: 40, y: 13, z: 0, r: THREE.MathUtils.clamp(298 / aspect, 213, 290), theta: 1.19, phi: 1.18 };
     }
     topView() { this.setView('top'); }
     insideView() { this.setView('inside'); }
@@ -1704,5 +1759,6 @@
     return detail;
   };
   Twin.ROAD_SCENES = ROAD_SCENES;
+  Twin.FEATURE_NODES = FEATURE_NODES;
   window.Twin = Twin;
 })();

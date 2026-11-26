@@ -23,21 +23,22 @@
     return attribute && { attribute, original: attribute.array.slice() };
   }
 
+  function landscapeSurfaces(landscape) {
+    const terrain = landscape?.children.find(object => object.geometry?.getAttribute('color'));
+    const crowns = [];
+    landscape?.traverse(object => {
+      if (object.isInstancedMesh && object.instanceColor) crowns.push(saveColorAttribute(object.instanceColor));
+    });
+    return {
+      terrain: saveColorAttribute(terrain?.geometry.getAttribute('color')),
+      heights: terrain?.geometry.getAttribute('position'),
+      crowns
+    };
+  }
+
   function findOutdoorSurfaces(twin) {
     const objects = twin.scene.children;
-    if (twin.mode === 'macro') {
-      const landscape = twin.routeLandscape?.children || [];
-      const terrain = landscape.find(object => object.geometry?.getAttribute('color'));
-      const crowns = [];
-      twin.routeLandscape?.traverse(object => {
-        if (object.isInstancedMesh && object.instanceColor) crowns.push(saveColorAttribute(object.instanceColor));
-      });
-      return {
-        terrain: saveColorAttribute(terrain?.geometry.getAttribute('color')),
-        heights: terrain?.geometry.getAttribute('position'),
-        crowns
-      };
-    }
+    if (twin.mode === 'macro') return landscapeSurfaces(twin.routeLandscape);
     if (twin.mode === 'road') {
       const ground = objects.find(object => object.isMesh && object.geometry?.type === 'PlaneGeometry' && object.position.y < 0);
       const median = objects.find(object => object.isMesh && object.geometry?.parameters?.width >= 200 && object.geometry.parameters.depth < 2 && object.position.z === 0);
@@ -246,7 +247,9 @@
     if (this.dead || this.fallbackEl || !this.renderer || !this.scene?.background?.isColor) return false;
     if (!Object.hasOwn(seasons, season) || !Object.hasOwn(weatherTypes, weather)) return false;
     const state = getState(this);
-    if (state.season !== season) {
+    const addedLandscape = this.detailLandscape && !state.surfaces.terrain;
+    if (addedLandscape) Object.assign(state.surfaces, landscapeSurfaces(this.detailLandscape));
+    if (state.season !== season || addedLandscape) {
       state.season = season;
       applySeason(state);
     }

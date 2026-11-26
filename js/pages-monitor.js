@@ -273,15 +273,29 @@
   P.gis = {
     title: '数字孪生一张图', group: '数字孪生一张图',
     render(el, params) {
+      const feature = params.view === 'node' && Twin.FEATURE_NODES.find(node => node.id === params.node);
+      if (feature) {
+        P.gis.renderFeature(el, feature);
+        return;
+      }
       const bridgeView = params.view !== 'workbench' && (['bridge', 'songlan'].includes(params.view) || params.scope);
       const screen = params.display === 'screen' && !bridgeView;
       if (screen) document.body.classList.add('gis-screen-mode');
       const modes = [['macro', 'map', '宏观路网'], ['road', 'road', '路段孪生'], ['tunnel', 'cube', '隧道孪生'], ['room', 'db', '机房孪生']];
+      const detailTerrain = key => key === 'road' || key === 'tunnel';
+      const fdev = params.focus ? D.byCode[params.focus] : null;
+      const fpl = fdev ? (fdev.place || '') : '';
+      const tunnel = fdev && (D.TUNNELS.find(t => fpl.includes(t.name)) || D.tunnelOf(fdev.km));
+      const inferredMode = fdev?.cat === 'room' || /机房/.test(fpl) ? 'room' : !fdev || tunnel ? 'tunnel' : 'road';
+      const mode = modes.some(([key]) => key === params.mode) ? params.mode : params.mode === 'bim' ? 'tunnel' : inferredMode;
+      const sceneSelect = '<select class="sel" id="gis-scene" aria-label="场景点位"></select>';
+      const terrainToggle = '<button type="button" class="btn" id="gis-environment" role="switch" aria-label="地形环境"></button>';
+      const sceneFields = bridgeView ? sceneSelect + terrainToggle : mode === 'macro' ? terrainToggle :
+        detailTerrain(mode) ? `<div class="gis-detail-fields">${sceneSelect}${terrainToggle}</div>` : sceneSelect;
       const sceneToolbar = `<div class="gis-toolbar${screen ? ' gis-scene-overlay' : ''}" role="group" aria-label="孪生场景工具栏">
           <div class="btn-group" id="gis-mode">${modes.map(([key, icon, label]) =>
             `<button type="button" class="seg" data-m="${key}" aria-pressed="false">${U.icon(icon, 13)} ${label}</button>`).join('')}</div>
-          ${bridgeView || params.mode !== 'macro' ? '<select class="sel" id="gis-scene" aria-label="场景点位"></select>' : ''}
-          ${bridgeView || params.mode === 'macro' ? '<button type="button" class="btn" id="gis-environment" role="switch" aria-label="地形环境"></button>' : ''}
+          ${sceneFields}
         </div>`;
       const heading = screen ? '' : `<header class="gis-heading">
         <div class="page-title">数字孪生一张图 · ${bridgeView ? '桥隧孪生' : params.mode === 'macro' ? '宏观路网' : '设备孪生'} ${U.demoBadge()}</div>
@@ -290,19 +304,11 @@
         P.gis.renderBridge(el, params, heading);
         return;
       }
-      let mode = ['road', 'room', 'macro', 'tunnel'].includes(params.mode) ? params.mode : params.mode === 'bim' ? 'tunnel' : null;
-      const fdev = params.focus ? D.byCode[params.focus] : null;
-      const fpl = fdev ? (fdev.place || '') : '';
-      const tunnel = fdev && (D.TUNNELS.find(t => fpl.includes(t.name)) || D.tunnelOf(fdev.km));
-      if (!mode) {
-        if (fdev?.cat === 'room' || /机房/.test(fpl)) mode = 'room';
-        else mode = !fdev || tunnel ? 'tunnel' : 'road';
-      }
       let sceneKey = params.scene || (mode === 'tunnel' ? tunnel?.id || 'QL' : mode === 'room' ? ((D.ROOMS.find(r => fpl.indexOf(r.name) >= 0) || {}).id || 'MR-01') : 'RS-QL');
-      const startMode = mode, startScene = sceneKey;
-      const sceneFocus = () => mode === startMode && sceneKey === startScene ? params.focus : undefined;
+      const startScene = sceneKey;
+      const sceneFocus = () => sceneKey === startScene ? params.focus : undefined;
       let twin = null;
-      let terrain = params.environment !== 'off';
+      let terrain = params.environment === 'on' || (mode === 'macro' && params.environment !== 'off');
       let markerFilter;
       let labelsBeforePortal;
       let buildSeq = 0;
@@ -421,6 +427,7 @@
           </div>
         </div>`;
       const box = el.querySelector('#twin-box');
+      const terrainButton = el.querySelector('#gis-environment');
       bindTwinHelp(box);
       const info = el.querySelector('#twin-info');
       const insideButton = el.querySelector('#hud-inside');
@@ -620,6 +627,7 @@
         info.classList.add('show');
       }
       function onSelect(sel) {
+        if (sel.kind === 'feature-node') { U.go('gis', {view:'node', node:sel.code, display:'screen'}); return; }
         if (sel.kind === 'tunnel') { drill('tunnel', sel.code); return; }
         if (sel.kind === 'roadsec') { drill('road', sel.code); return; }
         if (sel.kind === 'room') { drill('room', sel.code); return; }
@@ -629,12 +637,13 @@
         const sceneParams = { mode: nextMode };
         if (nextScene) sceneParams.scene = nextScene;
         if (screen) sceneParams.display = 'screen';
+        if (nextMode === mode && detailTerrain(mode)) sceneParams.environment = terrain ? 'on' : 'off';
         U.go('gis', sceneParams);
       }
       function drill(m, key) {
         if (compactQuery?.matches) toggleOverlay('lists', false);
-        if (screen || mode === 'macro' || mode === 'tunnel' || m === 'tunnel') { openScene(m, key); return; }
-        mode = m; sceneKey = key;
+        if (screen || mode !== m || mode === 'macro' || mode === 'tunnel') { openScene(m, key); return; }
+        sceneKey = key;
         rebuild();
         U.toast(m === 'tunnel' ? '已下钻进入隧道数字孪生场景' : m === 'room' ? '已下钻进入机房数字孪生场景' : '已下钻进入路段数字孪生场景', 'ok');
       }
@@ -710,7 +719,11 @@
         const items = D.TUNNELS.map(t => ({ m: 'tunnel', key: t.id, name: t.name, sub: D.kmText(t.start) + '—' + D.kmText(t.end), col: t.hero ? '#4fd8f0' : '#7fb0ff' }))
           .concat(ROAD.map(r => ({ m: 'road', key: r.id, name: r.name, sub: D.kmText(r.km), col: '#ffd24a' })))
           .concat(D.ROOMS.map(rm => ({ m: 'room', key: rm.id, name: rm.name, sub: D.kmText(rm.km), col: '#19e3ff' })));
-        db.innerHTML = items.map(it => `
+        const features = mode === 'macro' ? `<div class="gis-feature-links" aria-label="重点节点三维近景">${Twin.FEATURE_NODES.map(node =>
+          `<a href="#/gis?view=node&amp;node=${node.id}&amp;display=screen" data-route-node="${node.id}">
+            <span aria-hidden="true" style="color:${node.color}">${U.icon(node.icon, 15)}</span>
+            <span><b>${node.name}</b><small>${node.type}近景 · ${D.kmText(node.km)}</small></span><span aria-hidden="true">›</span></a>`).join('')}</div>` : '';
+        db.innerHTML = features + items.map(it => `
           <${listRowTag}${listRowType} class="nav-sub-item gis-list-entry" style="padding:7px 8px;display:flex;align-items:center;gap:8px;${mode === it.m && sceneKey === it.key ? 'background:rgba(47,123,255,.18);border-radius:6px' : ''}"${screen && mode === it.m && sceneKey === it.key ? ' aria-current="true"' : ''} data-drill="${it.m}|${it.key}">
             <span class="cd" style="width:8px;height:8px;border-radius:50%;background:${it.col};flex:0 0 8px"></span>
             <span style="flex:1;color:#cfe0f5;font-size:12px">${it.name}<br><span class="small" style="color:#6d84a6">${it.sub} · ${it.m === 'tunnel' ? '隧道孪生' : it.m === 'room' ? '机房孪生' : '路段孪生'}</span></span>
@@ -840,6 +853,7 @@
         if (!sel) return;
         const opts = mode === 'tunnel' ? D.TUNNELS.map(t => [t.id, t.name]) : mode === 'room' ? D.ROOMS.map(r => [r.id, r.name]) : ROAD.map(r => [r.id, r.name]);
         sel.innerHTML = opts.map(([v, n]) => `<option value="${v}" ${v === sceneKey ? 'selected' : ''}>${n}</option>`).join('');
+        sel.title = sel.selectedOptions[0]?.textContent || '';
       }
       function syncStatus() {
         const status = markerFilter || (terrain ? 'attention' : 'all');
@@ -909,16 +923,7 @@
             time: el.querySelector('#ctl-time .seg.on').dataset.t,
             focus: sceneFocus() || null
           });
-          if (mode === 'macro' && twin.fallbackEl) {
-            const button = el.querySelector('#gis-environment');
-            if (button) {
-              button.disabled = true;
-              button.title = '二维视图无法显示三维地形';
-              button.textContent = '二维路网';
-              button.classList.remove('primary');
-              button.setAttribute('aria-checked', 'false');
-            }
-          }
+          reflectTerrain();
           twin.setTraffic(+el.querySelector('#ctl-traffic').value);
           twin.setFog(+el.querySelector('#ctl-fog').value / 100);
           twin.setLabels(el.querySelector('#ctl-labels').classList.contains('on'));
@@ -960,34 +965,42 @@
         if (!screen) buildBottom();
         buildTwin();
       }
-      rebuild();
       /* ---- 头部导航 ---- */
-      const terrainButton = el.querySelector('#gis-environment');
+      function reflectTerrain() {
+        if (!terrainButton) return;
+        const unavailable = Boolean(twin?.fallbackEl);
+        terrainButton.disabled = unavailable;
+        terrainButton.title = unavailable ? '二维视图无法显示三维地形' : '';
+        terrainButton.setAttribute('aria-checked', String(terrain && !unavailable));
+        terrainButton.classList.toggle('primary', terrain && !unavailable);
+        terrainButton.textContent = unavailable ? mode === 'macro' ? '二维路网' : '地形不可用' : terrain ? '地形 开' : '地形 关';
+      }
+      reflectTerrain();
+      rebuild();
       if (terrainButton) {
-        const reflectTerrain = () => {
-          terrainButton.setAttribute('aria-checked', String(terrain));
-          terrainButton.classList.toggle('primary', terrain);
-          terrainButton.textContent = terrain ? '地形　开' : '地形　关';
-        };
-        reflectTerrain();
         terrainButton.onclick = () => {
           terrain = !terrain;
-          twin?.setRouteTerrain(terrain);
-          if (!terrain) restorePortalLabels();
+          if (mode === 'macro') {
+            twin?.setRouteTerrain(terrain);
+            if (!terrain) restorePortalLabels();
+            syncNearView();
+            syncStatus();
+            const closePreset = settingsPanel?.querySelector('[data-view-preset="close"]');
+            if (closePreset) closePreset.textContent = terrain ? '洞口' : '近景';
+          } else {
+            twin?.setDetailTerrain(terrain);
+            if (screen) twin?.setEnvironment?.(sceneEnvironment.season, sceneEnvironment.weather);
+          }
           reflectTerrain();
-          syncNearView();
-          syncStatus();
-          const closePreset = settingsPanel?.querySelector('[data-view-preset="close"]');
-          if (closePreset) closePreset.textContent = terrain ? '洞口' : '近景';
-          history.replaceState(history.state, '', '#/gis?' + new URLSearchParams({...params, mode:'macro', environment:terrain ? 'on' : 'off'}));
+          const next = new URLSearchParams(location.hash.split('?')[1]);
+          next.set('mode', mode);
+          if (detailTerrain(mode)) next.set('scene', sceneKey);
+          next.set('environment', terrain ? 'on' : 'off');
+          history.replaceState(history.state, '', '#/gis?' + next);
         };
       }
       el.querySelectorAll('#gis-mode [data-m]').forEach(b => b.addEventListener('click', () => {
-        if (b.dataset.m === mode) return;
-        if (screen || ['macro','tunnel'].includes(mode) || ['macro','tunnel'].includes(b.dataset.m)) { openScene(b.dataset.m); return; }
-        mode = b.dataset.m;
-        sceneKey = mode === 'tunnel' ? 'QL' : mode === 'road' ? 'RS-QL' : mode === 'room' ? 'MR-01' : sceneKey;
-        rebuild();
+        if (b.dataset.m !== mode) openScene(b.dataset.m);
       }));
       el.querySelector('#gis-scene')?.addEventListener('change', ev => {
         if (screen || mode === 'tunnel') { openScene(mode, ev.target.value); return; }

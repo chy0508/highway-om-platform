@@ -165,7 +165,9 @@ button { font-family: var(--font); }
 .gis-toolbar #gis-mode { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .gis-toolbar #gis-mode .seg { display: flex; align-items: center; justify-content: center; gap: 4px; padding: 0 4px; white-space: nowrap; }
 .gis-toolbar > * { height: 32px; width: 100%; min-width: 0; }
-.gis-toolbar > .btn { padding-inline: 4px; justify-content: center; white-space: nowrap; }
+.gis-toolbar > .btn, .gis-detail-fields .btn { padding-inline: 4px; justify-content: center; white-space: nowrap; }
+.gis-detail-fields { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 5px; }
+.gis-detail-fields .sel { width: 100%; min-width: 0; padding-inline-start: 5px; text-overflow: ellipsis; }
 .gis-instructions { margin: 0 0 14px; }
 @container (max-width: 75rem) {
   .gis-heading { grid-template-columns: minmax(0, 1fr); }
@@ -174,6 +176,7 @@ button { font-family: var(--font); }
   .gis-toolbar { grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 4px; }
   .gis-toolbar #gis-mode { grid-column: 1 / -1; }
   .gis-toolbar > :last-child { grid-column: 2; }
+  .gis-toolbar > .gis-detail-fields { grid-column: 1 / -1; }
 }
 @container (max-width: 24rem) {
   .gis-toolbar svg { display: none; }

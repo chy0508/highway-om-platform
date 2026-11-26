@@ -46,12 +46,13 @@
       + 1.1 * Math.cos(x * .17 + z * .23) + .55 * Math.sin(z * .37 - x * .19);
   }
 
-  function create(center, tunnels) {
+  function create(center, tunnels, section) {
     const river = x => 44 * Math.sin((x + 32) * .016 + .5) + 23 * Math.sin((x + 32) * .029);
     const riverWidth = x => 7.6 + 2.5 * Math.cos(x * .023) + 1.6 * Math.sin(x * .083);
     const waterY = -.85;
 
     function height(x, z) {
+      if (section) return section.height(x, z);
       const offset = z - center(x);
       const bank = smooth(Math.abs(z - river(x)), riverWidth(x) - 2, riverWidth(x) + 8);
       const slopes = smooth(Math.abs(offset), 9, 103);
@@ -82,7 +83,8 @@
       }));
       material.userData.boreCutCount = mouths.length;
       material.addEventListener('dispose', () => scrubMap.dispose());
-      material.customProgramCacheKey = () => 'wooded-terrain-' + mouths.length;
+      const sectionPortal = section?.portal === true;
+      material.customProgramCacheKey = () => sectionPortal ? 'wooded-terrain-single-bore' : 'wooded-terrain-' + mouths.length;
       material.onBeforeCompile = shader => {
         if (mouths.length) shader.uniforms.portalMouths = { value: mouths };
         shader.uniforms.scrubMap = { value: scrubMap };
@@ -96,7 +98,12 @@
             terrainScrub = scrubCoverage;
             terrainNormal = mat3(modelMatrix) * normal;
             terrainPosition = (modelMatrix * vec4(transformed, 1.0)).xyz;`);
-        const aperture = mouths.length ? `
+        const aperture = sectionPortal ? `
+            float offset = abs(terrainPosition.z) / 9.38;
+            float ceiling = -1.5 + 9.38 * sqrt(max(0.0, 1.0 - offset * offset));
+            if (abs(abs(terrainPosition.x) - 90.0) < 5.5 &&
+                offset < 1.0 && terrainPosition.y >= -5.4 && terrainPosition.y < ceiling) discard;
+          ` : mouths.length ? `
             for (int i = 0; i < ${mouths.length}; i++) {
               vec4 mouth = portalMouths[i];
               vec2 delta = terrainPosition.xz - mouth.xy;
@@ -132,7 +139,8 @@
 
     function landscape(anisotropy) {
       const group = new THREE.Group();
-      const ground = new THREE.PlaneGeometry(1180, 670, 472, 268);
+      const ground = section ? new THREE.PlaneGeometry(780, 520, 260, 180) :
+        new THREE.PlaneGeometry(1180, 670, 472, 268);
       ground.rotateX(-Math.PI / 2);
       const pos = ground.attributes.position;
       for (let i = 0; i < pos.count; i++) pos.setY(i, height(pos.getX(i), pos.getZ(i)));
@@ -149,7 +157,7 @@
         const hillside = smooth(Math.abs(z - center(x)), 8, 34);
         scrubCoverage[i] = hillside * (.27 + .69 * patch) * (1 - .74 * stone);
         tint.copy(grass).lerp(scrub, patch).lerp(rock, stone);
-        if (h < 3.5) tint.lerp(shore, 1 - smooth(h, waterY, 3.5));
+        if (!section && h < 3.5) tint.lerp(shore, 1 - smooth(h, waterY, 3.5));
         tint.multiplyScalar(.89 + .094 * patch + .053 * strata);
         tint.toArray(colors, i * 3);
       }
@@ -165,6 +173,7 @@
       const hillside = new THREE.Mesh(ground, terrainMaterial);
       hillside.receiveShadow = true;
       group.add(hillside);
+      if (section) return group;
       const water = new THREE.PlaneGeometry(1180, 2, 472, 9);
       water.rotateX(-Math.PI / 2);
       const points = water.attributes.position;
@@ -281,7 +290,9 @@
         const h = height(x, z);
         const overBore = tunnels.some(({ start, end }) => x > start + 8 && x < end - 8);
         const offset = Math.abs(z - center(x));
-        if (h < 1.8 || (offset < 10.4 && !(overBore && h > 13.1))) return;
+        if (section && !section.portal) {
+          if (offset < 19 || h < -5.4) return;
+        } else if (h < 1.8 || (offset < 10.4 && !(overBore && h > 13.1))) return;
         const key = Math.round(x / 2.5) + ',' + Math.round(z / 2.5);
         if (planted.has(key)) return;
         const gradient = slope(x, z, h);
@@ -314,7 +325,9 @@
           }
         }
       }
-      for (let i = 0; i < 12800 && spots.length < 3650; i++) {
+      const treeLimit = section ? 1200 : 3650;
+      const samples = section ? 4400 : 12800;
+      for (let i = 0; i < samples && spots.length < treeLimit; i++) {
         const x = -338 + rng() * 676;
         const z = center(x) + (rng() < .5 ? -1 : 1) * (12 + 195 * rng() ** 1.28);
         const clump = .24 + .72 * smooth(Math.sin(x * .083 + z * .059) + .71 * Math.sin(x * .142 - z * .071), -.63, 1);
@@ -384,7 +397,7 @@
       matrix.setPosition(x - Math.sin(angle) * lateral, roadY, center(x) + Math.cos(angle) * lateral);
     }
 
-    function strip(intervals, profile, material, colorAt = null) {
+    function strip(intervals, profile, material, colorAt = null, grade = null) {
       const vertices = [], indices = [], colors = [], uvs = [];
       for (const [start, end] of intervals) {
         const count = Math.ceil((end - start) / 2.6);
@@ -392,7 +405,7 @@
         for (let p = 0; p <= count; p++) {
           const x = mix(start, end, p / count);
           profile.forEach(([lateral, y]) => {
-            vertices.push(...lateralPoint(x, lateral, y));
+            vertices.push(...lateralPoint(x, lateral, grade ? y + grade(x) : y));
             if (colorAt) colors.push(...colorAt(x, start, end, y));
             if (material.map) uvs.push(x / 2.1, lateral / 2.1);
           });
@@ -650,9 +663,76 @@
       return building;
     }
 
-    return { height, landscape, daylightSky, forest, heading, lateralPoint, engineering, portal, portalStone, utilityRoom,
+    return { height, landscape, daylightSky, forest, heading, lateralPoint, strip, engineering, portal, portalStone, utilityRoom,
       trafficMatrix, trafficExtent: extent };
   }
 
-  window.TwinCorridor = { create };
+  function createSectionLandscape(mode, key, anisotropy) {
+    const tunnel = mode === 'tunnel';
+    const random = window.DB.rng('detail-terrain-' + key);
+    const phase = 2 * Math.PI * random();
+    const halfLength = tunnel ? 90 : 130;
+    const halfWidth = tunnel ? 6.5 : 12;
+    const length = 390;
+    const bend = x => Math.sign(x) * smooth(Math.abs(x), halfLength + 8, 310) * (x < 0 ? 36 : 52);
+    const grade = x => tunnel ? -4.3 : smooth(Math.abs(x), 146, 350) * (x < 0 ? -.9 : 4.1);
+    const ravineStation = -28 + 46 * Math.sin(phase);
+    const corridor = create(bend, tunnel ? [{ start: -halfLength, end: halfLength }] : [], {
+      portal: tunnel,
+      height(x, z) {
+        const offset = z - bend(x);
+        const distance = Math.abs(offset);
+        const crest = .5 + .5 * Math.sin(x * .025 + z * .041 + phase);
+        const hillside = smooth(distance, 23, 105) * (17 + 34 * crest ** 1.5 + 7 * Math.sin(x * .049 - z * .053));
+        const soil = 1.3 * Math.cos(x * .097 + z * .105) + .65 * Math.sin(z * .216 - x * .111);
+        const valley = -4.7 + soil + hillside;
+        if (tunnel) {
+          const access = mix(grade(x) - .3, valley, smooth(distance, 8.7, 22));
+          if (Math.abs(x) > halfLength) return access;
+          // Retain the slope over the bore and cut the two end faces at the portal stations.
+          const spine = offset + 6 * Math.sin(x * .038 + phase);
+          const flank = 1 - smooth(Math.abs(spine), 13, 78);
+          const interior = 1 - smooth(Math.abs(x), 28, 90);
+          const ridge = 18.5 + (22 + 5 * Math.cos(x * .062 + z * .051)) * interior;
+          return access + flank * ridge;
+        }
+        const ravine = 1 - smooth(Math.abs(x - ravineStation - 10 * Math.sin(z * .054 + phase)), 7, 36);
+        const roadbed = grade(x) - 1.15 - 4.65 * ravine;
+        return mix(roadbed, valley - 2.5 * ravine, smooth(distance, 12.5, 39));
+      }
+    });
+    const surround = corridor.landscape(anisotropy);
+    surround.name = tunnel ? '隧道周边地形' : '路段周边地形';
+    if (tunnel) surround.userData.titleHeight = corridor.height(0, 0) + 6;
+    surround.add(corridor.forest(random, anisotropy));
+    const approaches = new THREE.Group();
+    approaches.name = '两端接线路面';
+    const intervals = [[-length, -halfLength], [halfLength, length]];
+    const asphalt = new THREE.MeshStandardMaterial({ color: 0x2b2f36, roughness: .95 });
+    const concreteEdge = new THREE.MeshStandardMaterial({ color: 0xb9bcc2, roughness: .83, side: THREE.DoubleSide });
+    const white = new THREE.MeshBasicMaterial({ color: 0xe8eef5 });
+    const yellow = new THREE.MeshBasicMaterial({ color: 0xe9c86a });
+    const addStrip = (spans, profile, material) => approaches.add(corridor.strip(spans, profile, material, null, grade));
+    addStrip(intervals, [[-halfWidth, 0], [halfWidth, 0]], asphalt);
+    const dashes = intervals.flatMap(([start, end]) => {
+      const count = Math.floor((end - start) / 6.5);
+      return Array.from({ length: count }, (_, i) => [start + 3 + i * 6.5, start + 5.8 + i * 6.5]);
+    });
+    for (const offset of tunnel ? [0] : [-7.8, -4.2, 4.2, 7.8]) {
+      addStrip(dashes, [[offset - .1, .05], [offset + .1, .05]], white);
+    }
+    for (const side of [-1, 1]) {
+      const edge = (halfWidth - (tunnel ? .7 : 1)) * side;
+      addStrip(intervals, [[edge - .08, .05], [edge + .08, .05]], tunnel ? yellow : white);
+      if (tunnel) continue;
+      const median = side * .62;
+      addStrip(intervals, [[median - .08, .05], [median + .08, .05]], yellow);
+      const rail = side * halfWidth;
+      addStrip(intervals, [[rail - .35, -1.2], [rail - .35, .85], [rail + .35, .85], [rail + .35, -1.2]], concreteEdge);
+    }
+    surround.add(approaches);
+    return surround;
+  }
+
+  window.TwinCorridor = { create, createSectionLandscape };
 })();
